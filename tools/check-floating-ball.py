@@ -293,6 +293,47 @@ def main():
         "一致" if not wrong else f"不符：{', '.join(wrong)}",
     ))
 
+    # 25. ★ 悬浮球必须是动态的（用户明确要求「像立绘一样动起来」）。
+    #
+    # 立绘的动效里，在 64dp 尺寸下仍可辨认且有生命感的是：
+    #   眨眼（最生动）、呼吸（眼球四层错位脉动）、视线漂移、上下浮动。
+    # 睫毛旋转与各状态专属动画在这么小的尺寸上看不出，故未实现。
+    motion = {
+        "眨眼时长与立绘一致(150ms)": "BLINK_DURATION = 150L" in src,
+        "眨眼间隔随机(2.2–6.4s)": "BLINK_MIN = 2200L" in src and "BLINK_MAX = 6400L" in src,
+        "眼球呼吸": "BREATH_PERIOD" in src and "breathPhase" in src,
+        "视线漂移": "GAZE_PERIOD" in src and "gx *=" in src,
+        "上下浮动": "FLOAT_PERIOD" in src and "floatY" in src,
+        "逐帧重绘": "postDelayed(frame" in src,
+    }
+    missing_motion = [n for n, ok in motion.items() if not ok]
+    checks.append((
+        "悬浮球具备动效（眨眼/呼吸/视线/浮动）",
+        not missing_motion,
+        "齐全" if not missing_motion else f"缺少：{', '.join(missing_motion)}",
+    ))
+
+    # 26. 动画必须在离屏时停止 —— 否则会持续占用 CPU 与电量
+    checks.append((
+        "离屏时停止动画（省电）",
+        "onDetachedFromWindow" in src and "stopAnim" in src,
+        "onDetachedFromWindow -> stopAnim",
+    ))
+
+    # 27. 帧率应低于 60fps：悬浮球长期常驻显示，30fps 已足够
+    checks.append((
+        "帧率节制（约 30fps，长期显示更省电）",
+        "FRAME_MS = 33L" in src,
+        "FRAME_MS = 33L",
+    ))
+
+    # 28. 瞳孔漂移必须受限，否则在 64dp 上会像「翻白眼」
+    checks.append((
+        "瞳孔漂移限制在眼白中央区域",
+        "* 0.45f" in src,
+        "行程收窄到 45%",
+    ))
+
     # 输出
     print("")
     print("悬浮球逻辑校验（尺寸 / 吸附 / 健壮性）")
