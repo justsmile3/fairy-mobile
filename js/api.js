@@ -105,6 +105,47 @@ export async function getBalance({ apiKey, baseUrl }, signal) {
   };
 }
 
+/* ── 单次补全（非流式）───────────────────────────────── */
+
+/**
+ * 发一次非流式请求，返回完整文本。
+ *
+ * 用途：朗读前的口语化改写。这类任务不需要流式（用户不会盯着看），
+ * 而且需要拿到完整结果才能判断是否可用，因此用非流式更合适。
+ *
+ * @returns {Promise<string>} 模型返回的正文
+ */
+export async function completeOnce({
+  apiKey, baseUrl, model, messages, temperature = 0.3, maxTokens = 1200,
+}, signal) {
+  const url = `${normalizeBaseUrl(baseUrl)}/chat/completions`;
+  const body = {
+    model,
+    messages,
+    temperature,
+    max_tokens: maxTokens,
+    stream: false,
+  };
+
+  let res;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal,
+    });
+  } catch (err) {
+    throw networkError(err);
+  }
+  if (!res.ok) throw await readError(res);
+
+  const data = await res.json().catch(() => ({}));
+  const choice = Array.isArray(data.choices) ? data.choices[0] : null;
+  const content = choice?.message?.content;
+  return typeof content === 'string' ? content : '';
+}
+
 /* ── 流式对话 ─────────────────────────────────────────── */
 
 /**

@@ -14,7 +14,7 @@ import {
 } from './store.js';
 import {
   streamChat, listModels, getBalance, buildRequestMessages, ApiError,
-  normalizeBaseUrl,
+  normalizeBaseUrl, completeOnce,
 } from './api.js';
 import { buildSystemPrompt, titleFromText } from './persona.js';
 import { renderMarkdown, escapeHtml } from './markdown.js';
@@ -33,6 +33,7 @@ import {
 import { initSearchUi } from './search-ui.js';
 import { createHddBackground } from './hdd-bg.js';
 import { createChime, CHIME_PRESETS } from './chime.js';
+import { prepareSpeechText, cleanForSpeech, rewriteForSpeech } from './speech-text.js';
 
 const BUILD_VERSION = '0.1.0';
 
@@ -196,6 +197,129 @@ function initAppearanceUi() {
       state.chime?.play(state.settings.chimePreset || 'terminal');
     } catch (err) {
       toast(`提示音播放失败：${err.message}`);
+    }
+  });
+}
+
+/**
+ * 绑定「朗读改写」设置。
+ *
+ * 这里提供一个「预览改写效果」按钮：拿一段带 Markdown 的样例文本，
+ * 同时展示本地清洗与 API 改写的结果。
+ * 有这个才能判断改写是否合意 —— 否则只能靠听，很难对比。
+ */
+function initSpeechSimplifyUi() {
+  const simplifyToggle = $('#set-speech-simplify');
+  const rewriteToggle = $('#set-speech-rewrite');
+  const modelSel = $('#set-speech-model');
+  const previewBtn = $('#btn-speech-preview');
+  const previewBox = $('#speech-preview');
+  const hintNode = $('#speech-simplify-hint');
+
+  // 模型下拉：与主模型列表一致，默认选中 flash
+  if (modelSel && !modelSel.options.length) {
+    const models = (state.settings.models?.length ? state.settings.models : DEFAULT_MODELS);
+    for (const id of models) modelSel.append(new Option(id, id));
+  }
+
+  const s = state.settings;
+  if (simplifyToggle) simplifyToggle.checked = s.speechSimplify !== false;
+  if (rewriteToggle) rewriteToggle.checked = s.speechRewrite !== false;
+  if (modelSel) modelSel.value = s.speechModel || 'deepseek-flash';
+
+  function syncHint() {
+    if (!hintNode) return;
+    const on = state.settings.speechSimplify !== false;
+    const api = on && state.settings.speechRewrite !== false;
+    if (!on) {
+      hintNode.textContent = '已关闭。朗读会直接念原文，Markdown 标记也会被念出来。';
+      hintNode.className = 'field-note warn';
+      return;
+    }
+    hintNode.className = 'field-note';
+    hintNode.textContent = api
+      ? `已开启：先本地清洗去除 Markdown，再用 ${state.settings.speechModel || 'deepseek-flash'} 改写为口语稿。屏幕上的回复不会被改动。`
+      : '已开启本地清洗（去 Markdown、表格转叙述、代码块转说明），不调用 API，零额外开销。';
+  }
+
+  simplifyToggle?.addEventListener('change', (e) => {
+    saveSettings({ speechSimplify: e.target.checked });
+    if (rewriteToggle) rewriteToggle.disabled = !e.target.checked;
+    if (modelSel) modelSel.disabled = !e.target.checked;
+    syncHint();
+  });
+
+  rewriteToggle?.addEventListener('change', (e) => {
+    saveSettings({ speechRewrite: e.target.checked });
+    if (modelSel) modelSel.disabled = !e.target.checked;
+    syncHint();
+  });
+
+  modelSel?.addEventListener('change', (e) => {
+    saveSettings({ speechModel: e.target.value });
+    syncHint();
+  });
+
+  if (rewriteToggle) rewriteToggle.disabled = s.speechSimplify === false;
+  if (modelSel) modelSel.disabled = s.speechSimplify === false || s.speechRewrite === false;
+  syncHint();
+
+  /* ── 预览改写效果 ── */
+  const SAMPLE = [
+    '## 部署步骤',
+    '',
+    '运行下面的命令即可：',
+    '',
+    '```bash',
+    'npm install && npm run build',
+    '```',
+    '',
+    '| 参数 | 说明 |',
+    '| --- | --- |',
+    '| `--port` | 指定端口 |',
+    '| `--host` | 监听地址 |',
+    '',
+    '详见 [官方文档](https://example.com/docs/getting-started)。',
+  ].join('\n');
+
+  previewBtn?.addEventListener('click', async () => {
+    if (!previewBox) return;
+    previewBox.hidden = false;
+    previewBox.textContent = '正在处理…';
+    previewBtn.disabled = true;
+
+    try {
+      const local = cleanForSpeech(SAMPLE);
+      let apiText = '';
+      let apiNote = '';
+
+      if (state.settings.speechRewrite !== false && state.settings.apiKey) {
+        const r = await rewriteForSpeech(local, state.settings, { completeOnce });
+        if (r.ok) apiText = r.text;
+        else apiNote = r.error || '改写失败';
+      } else if (!state.settings.apiKey) {
+        apiNote = '未配置 API Key，跳过 API 改写';
+      } else {
+        apiNote = 'API 改写已关闭';
+      }
+
+      const parts = [
+        '【原文（屏幕上显示的，不会被改动）】',
+        SAMPLE,
+        '',
+        '【本地清洗后（朗读用）】',
+        local,
+      ];
+      if (apiText) {
+        parts.push('', '【API 口语化后（朗读用）】', apiText);
+      } else if (apiNote) {
+        parts.push('', `【API 改写】${apiNote}`);
+      }
+      previewBox.textContent = parts.join('\n');
+    } catch (err) {
+      previewBox.textContent = `预览失败：${err.message}`;
+    } finally {
+      previewBtn.disabled = false;
     }
   });
 }
@@ -696,8 +820,31 @@ function playChimeBeforeSpeech() {
   }
 }
 
-function speakText(text, { auto = false } = {}) {
+/**
+ * 朗读一段文字。
+ *
+ * 注意「改写」的边界：
+ *   屏幕上显示、存入数据库、发给模型的**始终是原文**。
+ *   这里只是在递给 TTS 之前做一次转换，转换结果不会被写回任何地方。
+ *   否则会污染对话历史 —— 之后重新生成、编辑消息都会带着改写稿。
+ */
+async function speakText(text, { auto = false } = {}) {
   const bridge = typeof window !== 'undefined' ? window.AndroidBridge : null;
+
+  // ── 朗读前改写为口语稿 ──
+  //
+  // 本地清洗总会执行（零延迟，作为保底）；若开启 API 改写且配置齐全，
+  // 再进一步口语化。任何一步失败都不影响朗读 —— 直接念原文也比哑掉好。
+  let spoken = String(text || '');
+  if (state.settings.speechSimplify !== false) {
+    try {
+      const prepared = await prepareSpeechText(spoken, state.settings, { completeOnce });
+      if (prepared.text) spoken = prepared.text;
+    } catch (err) {
+      console.warn('[fairy] 朗读改写失败，使用原文', err);
+    }
+  }
+
   if (!bridge) {
     // 浏览器环境：交给 speech.js 的 Web Speech 实现
     if (!state.tts) {
@@ -708,7 +855,7 @@ function speakText(text, { auto = false } = {}) {
     setMascotState('speaking');
     // 浏览器下没有原生的 onTtsStart 事件，直接在这里响
     playChimeBeforeSpeech();
-    state.tts.speak(text, {
+    state.tts.speak(spoken, {
       onEnd: () => { if (!state.streaming) setMascotState('idle'); },
       onError: () => { if (!state.streaming) setMascotState('idle'); },
     });
@@ -725,7 +872,7 @@ function speakText(text, { auto = false } = {}) {
   if (canCloud) {
     const params = buildSynthesisParams(state.settings, provider);
     try {
-      bridge.ttsSpeakCloud(text, JSON.stringify(params));
+      bridge.ttsSpeakCloud(spoken, JSON.stringify(params));
       return;
     } catch (err) {
       console.warn('[fairy] 云朗读调用失败，回退系统引擎', err);
@@ -735,7 +882,7 @@ function speakText(text, { auto = false } = {}) {
   // 回退：系统语音引擎
   if (typeof bridge.ttsSpeak === 'function') {
     try {
-      bridge.ttsSpeak(text);
+      bridge.ttsSpeak(spoken);
       return;
     } catch { /* 忽略 */ }
   }
@@ -1789,6 +1936,9 @@ async function boot() {
 
   // 界面：视差背景与提示音
   initAppearanceUi();
+
+  // 朗读改写设置
+  initSpeechSimplifyUi();
 
   // 启动时把云识别凭据推给原生（原生侧不持久化，每次启动都要推）
   try {

@@ -15,13 +15,30 @@ const FALLBACK_PREFIX = 'fairy-mobile:fallback:';
 
 /* ── 默认设置 ─────────────────────────────────────────── */
 
-export const DEFAULT_MODELS = ['deepseek-chat', 'deepseek-reasoner'];
+/**
+ * 可选模型。
+ *
+ * 依据官方文档（api-docs.deepseek.com/quick_start/pricing）：
+ *   deepseek-flash    DeepSeek-V4.1-Flash，便宜、支持视觉，日常首选
+ *   deepseek-v4-pro   DeepSeek-V4-Pro，能力强但价格约为 flash 的 4–5 倍
+ *
+ * 同时保留 deepseek-chat / deepseek-reasoner：
+ * 它们已从官方文档移除，但服务端可能仍接受（旧名常被映射到新模型）。
+ * 留着是为了兼容既有用户的配置 —— 若某天彻底不可用，
+ * 界面上会出现模型报错，用户切到 flash 即可。
+ */
+export const DEFAULT_MODELS = [
+  'deepseek-flash',
+  'deepseek-v4-pro',
+  'deepseek-chat',
+  'deepseek-reasoner',
+];
 
 export const DEFAULT_SETTINGS = Object.freeze({
   // 接入
   apiKey: '',
   baseUrl: 'https://api.deepseek.com',
-  model: 'deepseek-chat',
+  model: 'deepseek-flash',
   models: DEFAULT_MODELS,
   // 生成
   temperature: 1,
@@ -70,6 +87,15 @@ export const DEFAULT_SETTINGS = Object.freeze({
   chimeEnabled: true,
   chimePreset: 'terminal',
   chimeVolume: 0.7,
+
+  // ── 朗读文本改写 ────────────────────────────────────
+  // 朗读前把 Markdown 转成口语稿。**只影响朗读**，
+  // 屏幕上显示与存进数据库的始终是原文。
+  speechSimplify: true,        // 是否启用改写（本地清洗 + API 口语化）
+  speechRewrite: true,         // 是否调用 API 进一步口语化（关掉则只做本地清洗）
+  // 改写固定用便宜快速的 flash：这是简单任务，
+  // 用 v4-pro 做性价比很低，因此不跟随对话模型。
+  speechModel: 'deepseek-flash',
 
   // ── 背景（HDD 终端风格）────────────────────────────
   // 背景是**静止**的终端风格图层，UI 元素半透明地融入其中。

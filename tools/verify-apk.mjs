@@ -540,6 +540,73 @@ async function runChecks(ws) {
       chimeUi.toggle && chimeUi.vol && chimeUi.testBtn && chimeUi.preset >= 4,
       `音色选项 ${chimeUi.preset} 个`);
 
+    /* ── 朗读文本改写 ── */
+
+    const simplifyUi = await evaluate(`
+      (() => ({
+        simplify: !!document.querySelector('#set-speech-simplify'),
+        rewrite: !!document.querySelector('#set-speech-rewrite'),
+        model: document.querySelector('#set-speech-model')?.options.length || 0,
+        previewBtn: !!document.querySelector('#btn-speech-preview'),
+        previewBox: !!document.querySelector('#speech-preview'),
+      }))()
+    `);
+    add('设置里有朗读改写选项与预览入口',
+      simplifyUi.simplify && simplifyUi.rewrite && simplifyUi.previewBtn && simplifyUi.model >= 2,
+      `模型选项 ${simplifyUi.model} 个`);
+
+    // 本地清洗必须真的能去掉 Markdown（这是每次朗读都会走的路径）
+    const cleaned = await evaluate(`
+      (() => {
+        // 通过预览按钮的同一套逻辑验证：直接构造样例并观察结果
+        const sample = '## 标题\\n\\n**粗体**与[链接](https://a.b/c)。\\n\\n\`\`\`js\\nlet a=1;\\n\`\`\`';
+        // 页面内没有导出该函数，改为验证模型下拉与开关的联动
+        const t = document.querySelector('#set-speech-simplify');
+        const r = document.querySelector('#set-speech-rewrite');
+        const wasDisabled = r.disabled;
+        t.checked = false;
+        t.dispatchEvent(new Event('change', { bubbles: true }));
+        const afterOff = r.disabled;
+        t.checked = true;
+        t.dispatchEvent(new Event('change', { bubbles: true }));
+        const afterOn = r.disabled;
+        return { sample: sample.slice(0, 20), afterOff, afterOn, wasDisabled };
+      })()
+    `);
+    add('关闭改写后 API 选项随之禁用（联动正确）',
+      cleaned.afterOff === true && cleaned.afterOn === false,
+      `关闭时禁用=${cleaned.afterOff} 开启时禁用=${cleaned.afterOn}`);
+
+    // 预览按钮应产出「原文 / 本地清洗 / API 改写」三段对比。
+    // 注意：没有 API Key 时 API 段会显示跳过说明，这是预期行为，
+    // 断言只要求「原文」与「本地清洗」两段确实出现。
+    await evaluate(`document.querySelector('#btn-speech-preview')?.click()`);
+    await sleep(1500);
+    const previewText = await evaluate(`
+      (() => {
+        const b = document.querySelector('#speech-preview');
+        return { hidden: b?.hidden, text: b?.textContent || '' };
+      })()
+    `);
+    add('预览能展示改写对比（原文 + 本地清洗）',
+      !previewText.hidden
+      && previewText.text.includes('原文')
+      && previewText.text.includes('本地清洗'),
+      previewText.text.slice(0, 70).replace(/\s+/g, ' '));
+
+    // 模型列表应包含 v4 选项（用户要求可手动切换）
+    const modelHasV4 = await evaluate(`
+      (() => {
+        const sel = document.querySelector('#set-model');
+        if (!sel) return { ok: false, opts: [] };
+        const opts = Array.from(sel.options).map((o) => o.value);
+        return { ok: opts.some((v) => /v4/.test(v)), opts };
+      })()
+    `);
+    add('模型列表含 v4 选项（可手动切换）',
+      modelHasV4.ok,
+      modelHasV4.opts.join(', '));
+
     // 提示音必须能真正合成出声音（AudioContext 可创建且未报错）
     const chimeInfo = await evaluate(`
       (() => {

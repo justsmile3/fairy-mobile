@@ -191,6 +191,28 @@
         <input id="set-auto-read" type="checkbox">
       </label>
 
+      <!-- ── 朗读文本改写 ── -->
+      <label class="field switch">
+        <span>朗读前改写为口语稿</span>
+        <input id="set-speech-simplify" type="checkbox">
+      </label>
+      <label class="field switch">
+        <span>用 API 进一步口语化</span>
+        <input id="set-speech-rewrite" type="checkbox">
+      </label>
+      <label class="field">
+        <span>改写用的模型</span>
+        <select id="set-speech-model"></select>
+      </label>
+      <p id="speech-simplify-hint" class="field-note">
+        屏幕上的回复<b>不会被改动</b>，只有朗读时使用改写后的稿子。
+        开启 API 改写会额外消耗少量 token（用便宜快速的模型即可）。
+      </p>
+      <div class="row">
+        <button id="btn-speech-preview" class="mini-btn" type="button">预览改写效果</button>
+      </div>
+      <div id="speech-preview" class="diag-box" hidden></div>
+
       <!-- ── 云端语音（推荐，支持 Fairy 音色） ── -->
       <label class="field">
         <span>语音合成方式</span>
