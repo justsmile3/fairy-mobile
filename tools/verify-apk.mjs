@@ -527,6 +527,52 @@ async function runChecks(ws) {
       bgParams.fuse && bgParams.density && bgParams.bright,
       '');
 
+    // 文字区遮罩：存在控件，且确实改变了绘制结果
+    const veilCtl = await evaluate(`
+      (() => {
+        const r = document.querySelector('#set-bg-veil');
+        return { exists: !!r, val: r?.value || '', hasOut: !!document.querySelector('#out-bg-veil') };
+      })()
+    `);
+    add('有文字区遮罩滑块',
+      veilCtl.exists && veilCtl.hasOut,
+      `默认 ${veilCtl.val}`);
+
+    // 遮罩必须真的改变画布输出：对比强度 0 与 1 时的中心像素
+    const veilEffect = await evaluate(`
+      (async () => {
+        const canvas = document.querySelector('#hdd-bg');
+        if (!canvas) return { ok: false, why: '无画布' };
+        const ctx = canvas.getContext('2d');
+        const r = document.querySelector('#set-bg-veil');
+        const sample = () => {
+          // 取一个必然落在遮罩范围内、且原本有网格线经过的位置
+          const x = Math.floor(canvas.width * 0.5);
+          const y = Math.floor(canvas.height * 0.42);
+          const d = ctx.getImageData(x, y, 1, 1).data;
+          return [d[0], d[1], d[2]];
+        };
+        // 关掉遮罩
+        r.value = '0';
+        r.dispatchEvent(new Event('input', { bubbles: true }));
+        await new Promise(res => setTimeout(res, 220));
+        const off = sample();
+        // 开到最大
+        r.value = '1';
+        r.dispatchEvent(new Event('input', { bubbles: true }));
+        await new Promise(res => setTimeout(res, 220));
+        const on = sample();
+        // 恢复默认
+        r.value = '0.72';
+        r.dispatchEvent(new Event('input', { bubbles: true }));
+        await new Promise(res => setTimeout(res, 220));
+        return { ok: true, off, on, changed: off.join() !== on.join() };
+      })()
+    `);
+    add('遮罩开关会改变绘制结果',
+      veilEffect.ok && veilEffect.changed,
+      veilEffect.ok ? `关=${veilEffect.off} 开=${veilEffect.on}` : veilEffect.why);
+
     // 提示音设置项
     const chimeUi = await evaluate(`
       (() => ({

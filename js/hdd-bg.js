@@ -78,6 +78,23 @@ export function createHddBackground(canvas, options = {}) {
   /** 用户可调的网格密度与亮度 */
   let density = 1;
   let brightness = 1;
+  /**
+   * 文字区遮罩强度（0–1）。
+   *
+   * 作用：背景铺满全屏（视觉上融入），但在**文字所在的区域**压暗网格，
+   * 避免"字和线混在一起"影响阅读。观感上像一束探照灯打在内容上 ——
+   * 中间干净、四周网格仍可见。
+   *
+   * 0 表示不做遮罩（网格完整透出），1 表示文字区完全压平。
+   */
+  let textVeil = 0.72;
+
+  /** 设置文字区遮罩强度 */
+  function setTextVeil(v) {
+    const n = Number(v);
+    textVeil = Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0.72;
+    draw();
+  }
 
   /** 设置网格密度（0.5–2）：大于 1 更密，小于 1 更疏 */
   function setDensity(v) {
@@ -117,6 +134,8 @@ export function createHddBackground(canvas, options = {}) {
         scanColor: 'rgba(40, 70, 110, 0.045)',
         glow: 'rgba(90, 140, 210, 0.10)',
         text: 'rgba(70, 110, 160, 0.32)',
+        // 文字区遮罩用的颜色：取底色中间值，让网格"消失"而不改变明暗
+        veilRgb: '232, 240, 248',
       };
     }
     return {
@@ -126,6 +145,7 @@ export function createHddBackground(canvas, options = {}) {
       scanColor: 'rgba(180, 220, 255, 0.030)',
       glow: 'rgba(90, 166, 240, 0.14)',
       text: 'rgba(150, 200, 255, 0.28)',
+      veilRgb: '13, 19, 27',
     };
   }
 
@@ -159,8 +179,52 @@ export function createHddBackground(canvas, options = {}) {
     // 4. 扫描线（覆盖全局，营造终端质感）
     drawScanlines(p);
 
-    // 5. 边缘暗角，让内容区域更聚焦
+    // 5. 文字区遮罩
+    //    目的：背景铺满全屏（视觉融入），但文字所在的中间区域要干净。
+    //    必须在网格与扫描线**之后**绘制才能压住它们。
+    drawTextVeil(p);
+
+    // 6. 边缘暗角，让内容区域更聚焦
     drawVignette();
+  }
+
+  /**
+   * 文字区遮罩：用底色的椭圆渐变压掉中间的网格，
+   * 使正文区域干净、四周仍保留终端质感。
+   *
+   * 为什么用椭圆而不是矩形：
+   *   矩形的边缘会形成一条生硬的直线，反而更显眼；
+   *   椭圆边界柔和，过渡自然，看起来像光照范围而不是"贴了块板子"。
+   *
+   * 为什么用底色而不是黑色或白色：
+   *   用底色才能让网格"消失"而不改变整体明暗，
+   *   否则文字区会变成一块突兀的色斑。
+   */
+  function drawTextVeil(p) {
+    if (textVeil <= 0.001) return;
+
+    const cx = width / 2;
+    // 略偏上：正文主要集中在屏幕中上部，立绘在右下
+    const cy = height * 0.42;
+    // 覆盖范围：横向略超出屏宽，纵向覆盖大部分高度
+    const rx = width * 0.78;
+    const ry = height * 0.46;
+
+    ctx.save();
+    // 用变换把圆形径向渐变拉成椭圆
+    ctx.translate(cx, cy);
+    ctx.scale(1, ry / rx);
+
+    const g = ctx.createRadialGradient(0, 0, rx * 0.30, 0, 0, rx);
+    const solid = Math.round(255 * textVeil);
+    // 中心：近乎完全遮住网格
+    g.addColorStop(0.00, `rgba(${p.veilRgb}, ${(solid / 255).toFixed(3)})`);
+    g.addColorStop(0.62, `rgba(${p.veilRgb}, ${((solid * 0.86) / 255).toFixed(3)})`);
+    // 外圈：完全不遮，网格完整保留
+    g.addColorStop(1.00, `rgba(${p.veilRgb}, 0)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(-rx, -rx, rx * 2, rx * 2);
+    ctx.restore();
   }
 
   function drawGridLayer(layer, p) {
@@ -334,5 +398,8 @@ export function createHddBackground(canvas, options = {}) {
   window.addEventListener('resize', onResize);
   window.addEventListener('orientationchange', onResize);
 
-  return { setParallax, setTheme, setDensity, setBrightness, resize, start, stop, destroy };
+  return {
+    setParallax, setTheme, setDensity, setBrightness, setTextVeil,
+    resize, start, stop, destroy,
+  };
 }

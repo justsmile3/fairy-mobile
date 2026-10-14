@@ -369,6 +369,14 @@
         <span>背景亮度 <output id="out-bg-bright">1.0</output></span>
         <input id="set-bg-bright" type="range" min="0.3" max="1.6" step="0.1" value="1">
       </label>
+      <label class="field range">
+        <span>文字区遮罩 <output id="out-bg-veil">0.72</output></span>
+        <input id="set-bg-veil" type="range" min="0" max="1" step="0.04" value="0.72">
+      </label>
+      <p class="field-note">
+        遮罩会压掉正文区域的背景网格，避免线条与文字混在一起。
+        调高更干净易读，调低背景融入感更强。
+      </p>
 
       <label class="field switch">
         <span>朗读前播放提示音</span>

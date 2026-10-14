@@ -83,6 +83,7 @@ function initBackground() {
   hddBackground.setTheme(state.settings.theme === 'light' ? 'light' : 'dark');
   hddBackground.setDensity(state.settings.bgDensity ?? 1);
   hddBackground.setBrightness(state.settings.bgBrightness ?? 1);
+  hddBackground.setTextVeil(state.settings.bgTextVeil ?? 0.72);
   // 位置偏移：用户可自定义，但不通过拖动改变
   hddBackground.setParallax(
     Number(state.settings.bgOffsetX) || 0,
@@ -104,6 +105,8 @@ function initAppearanceUi() {
   const densityOut = $('#out-bg-density');
   const brightRange = $('#set-bg-bright');
   const brightOut = $('#out-bg-bright');
+  const veilRange = $('#set-bg-veil');
+  const veilOut = $('#out-bg-veil');
 
   // 填充音色选项
   if (presetSel && !presetSel.options.length) {
@@ -124,6 +127,8 @@ function initAppearanceUi() {
   if (densityOut) densityOut.textContent = Number(s.bgDensity ?? 1).toFixed(1);
   if (brightRange) brightRange.value = String(s.bgBrightness ?? 1);
   if (brightOut) brightOut.textContent = Number(s.bgBrightness ?? 1).toFixed(1);
+  if (veilRange) veilRange.value = String(s.bgTextVeil ?? 0.72);
+  if (veilOut) veilOut.textContent = Number(s.bgTextVeil ?? 0.72).toFixed(2);
 
   /* ── 融合强度 ── */
   fuseRange?.addEventListener('input', (e) => {
@@ -156,6 +161,16 @@ function initAppearanceUi() {
   });
   brightRange?.addEventListener('change', (e) => {
     saveSettings({ bgBrightness: Number(e.target.value) });
+  });
+
+  /* ── 文字区遮罩 ── */
+  veilRange?.addEventListener('input', (e) => {
+    const v = Number(e.target.value);
+    if (veilOut) veilOut.textContent = v.toFixed(2);
+    try { hddBackground?.setTextVeil?.(v); } catch { /* 忽略 */ }
+  });
+  veilRange?.addEventListener('change', (e) => {
+    saveSettings({ bgTextVeil: Number(e.target.value) });
   });
 
   chimeToggle?.addEventListener('change', (e) => {
