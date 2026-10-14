@@ -1,12 +1,41 @@
-# DeepSeek Fairy Mobile
+# Fairy Mobile
 
-手机版 DeepSeek Fairy —— 一个**独立运行**、直连 DeepSeek 官方 API 的 PWA（渐进式 Web 应用）。
+一个手机上跑的 AI 助手应用：**立绘吉祥物 + 直连 DeepSeek API**，
+可以打包成 Android APK（约 1.2 MB，零原生依赖）。
 
-不需要电脑上的 DSH 服务，也不需要任何中转服务器：手机浏览器直接把请求发往
-`api.deepseek.com`，API Key 只保存在手机本机的浏览器里。
+不需要电脑上的服务，也不需要中转服务器：手机直接把请求发往
+`api.deepseek.com`，API Key 只保存在手机本机。
 
-> 立绘、语音、人设源自 [Fairy-DSH](../../Fairy-DSH/) 插件套件（Apache-2.0）。
-> 本应用不包含《绝区零》的任何官方素材、语料或版权内容；人设仅以角色设定文字形式内嵌。
+<img src="icons/icon-192.png" width="96" alt="Fairy 图标">
+
+---
+
+## 想直接用？先看这里
+
+**方式一：自己构建 APK**（推荐，两分钟）
+
+```sh
+git clone https://github.com/justsmile3/fairy-mobile.git
+cd fairy-mobile
+node tools/bundle.mjs      # 打包前端
+node tools/build-apk.mjs   # 编译 APK → dist/Fairy.apk
+```
+
+需要：Node.js、JDK 17、Android SDK、Gradle 8.7。
+签名密钥会在首次构建时自动生成，无需额外准备。
+
+**方式二：直接用浏览器打开**（无需构建）
+
+```sh
+node tools/serve.mjs
+```
+
+然后用手机浏览器访问终端里显示的地址即可。
+
+**方式三：等 Releases**
+
+如果作者发布了 Release，可以直接在
+[Releases](https://github.com/justsmile3/fairy-mobile/releases) 页面下载 APK。
 
 ---
 
@@ -14,12 +43,15 @@
 
 - 💬 **流式对话**：SSE 实时输出，支持中途停止、重新生成、复制、删除
 - 🧚 **立绘吉祥物**：矢量绘制的 Fairy 之眼，眨眼、视线跟随、思考/说话/聆听/警戒/休眠等状态动效，可拖动、可调大小与速度
-- 🔊 **语音朗读（TTS）**：自动朗读开关、可选音色、语速/音调，长文自动分句
-- 🎙️ **语音输入（STT）**：浏览器原生识别，支持中文连续识别
-- 🗂️ **会话管理**：多会话、自动起标题、搜索、删除，全部存本机 IndexedDB
-- ⚙️ **设置**：API Key、模型切换（`deepseek-chat` / `deepseek-reasoner`）、温度、最大输出、推理过程展示、主题（暗/亮/跟随系统）
-- 💰 **余额与用量**：直读 `/user/balance`，并在流式返回 `usage` 时统计 token
-- 📦 **离线可用**：Service Worker 缓存应用外壳；安装后即使电脑关机也能打开（对话仍需联网访问 DeepSeek）
+- 🔊 **语音朗读**：云端 TTS，**支持用一段参考录音克隆出 Fairy 的音色**
+  （见 [docs/用上Fairy的音色.md](docs/用上Fairy的音色.md)）
+- 🎙️ **语音输入**：系统识别，设备不支持时可切换云识别
+- 🫧 **悬浮球唤醒**：常驻小圆球（按立绘绘制），点一下就能说话，
+  拖到屏幕边缘自动收起成半个（见 [docs/悬浮球语音唤醒.md](docs/悬浮球语音唤醒.md)）
+- 🗂️ **会话管理**：多会话、自动起标题、搜索、删除，全部存本机
+- ⚙️ **设置**：API Key、模型切换、温度、最大输出、推理过程展示、主题（暗/亮/跟随系统）
+- 💰 **余额与用量**：直读 `/user/balance`，流式返回 `usage` 时统计 token
+- 📦 **离线可用**：Service Worker 缓存应用外壳；对话仍需联网
 
 ## 快速开始
 
@@ -241,7 +273,6 @@ node tools/build-apk.mjs          # 打包 + 编译 APK（会自动先打包 JS�
 
 ## 许可
 
-- 本项目代码按 [MIT License](LICENSE) 发布。
-- 人设文字移植自 Fairy-DSH 的 agent preset。
-- 本应用不包含也不主张《绝区零》相关版权、商标或官方关联权利。
-  内置的参考录音仅用于个人使用者的语音合成音色克隆。
+- 代码按 [MIT License](LICENSE) 发布。
+- 版权与第三方服务的边界说明见 [NOTICE.md](NOTICE.md)。
+- 本项目不包含也不主张《绝区零》相关版权、商标或官方关联权利。

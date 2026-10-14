@@ -19,14 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-## 附加说明
-
-- 本项目不包含、也不主张《绝区零》(Zenless Zone Zero) 相关的版权、商标
-  或任何官方关联权利。
-- 仓库内置的参考音频（`voice/fairy-ref.wav`）仅作为语音合成音色克隆的
-  技术示例，供个人使用者本地使用。
-- 使用本项目需要自行提供 DeepSeek API Key，以及（可选的）语音服务凭据。
-  这些凭据只保存在使用者本机，不会上传到本仓库。
