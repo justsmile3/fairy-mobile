@@ -1,0 +1,18 @@
+{
+  "name": "fairy-mobile",
+  "version": "0.4.0",
+  "private": true,
+  "type": "module",
+  "description": "Fairy 手机版 —— 立绘吉祥物 + 直连 DeepSeek API 的对话应用，可打包成 Android APK",
+  "keywords": ["deepseek", "pwa", "android", "voice", "tts"],
+  "license": "MIT",
+  "scripts": {
+    "serve": "node tools/serve.mjs",
+    "bundle": "node tools/bundle.mjs",
+    "build": "node tools/build-apk.mjs",
+    "icons": "python tools/make-icons.py",
+    "test": "node test/run.mjs && node test/native-bridge.mjs",
+    "verify": "node tools/verify-apk.mjs --with-bridge",
+    "verify:voice": "node tools/verify-voice.mjs"
+  }
+}

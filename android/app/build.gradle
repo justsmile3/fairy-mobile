@@ -1,0 +1,70 @@
+plugins {
+    id 'com.android.application'
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fairy —— 手机版主应用。
+//
+// 设计原则：**零原生依赖**。
+//
+// 语音朗读走网络 API（SiliconFlow / 百度 / 自定义），而不是本地模型。
+// 原因：本地语音克隆需要 sherpa-onnx 原生库与 ~180MB 模型，
+// 实测在部分设备上会导致启动崩溃，且受 Android 的库加载限制无法放包外。
+// 走 API 则完全规避这些问题，且支持用参考录音克隆出 Fairy 音色。
+// ─────────────────────────────────────────────────────────────────────────────
+
+android {
+    namespace 'com.fairy.mobile'
+    compileSdk 33
+
+    defaultConfig {
+        applicationId "com.fairy.mobile"
+        minSdk 23
+        targetSdk 33
+        versionCode 4
+        versionName "0.4.0"
+
+        resValue "string", "app_name_display", "Fairy"
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    packagingOptions {
+        resources {
+            excludes += ['META-INF/*.kotlin_module']
+        }
+    }
+
+    // 显式使用项目内置的 debug keystore，避免 AGP 去 ~/.android 下自动生成
+    //（该目录在本机不可写）。发布前请替换为正式签名。
+    signingConfigs {
+        debug {
+            storeFile file('../keystore/debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    // 无第三方依赖：语音走系统 TTS 或网络 API，不需要任何原生库
+}

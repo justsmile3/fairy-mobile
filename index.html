@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Fairy</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="手机版 DeepSeek Fairy：独立运行、直连 DeepSeek API 的 PWA">
+<meta name="theme-color" content="#0f1318">
+<meta name="color-scheme" content="dark light">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Fairy">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" sizes="192x192">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/mascot.css">
+</head>
+<body>
+
+<!-- ── 顶栏 ─────────────────────────────────────────────── -->
+<header id="topbar">
+  <button id="btn-menu" class="icon-btn" type="button" aria-label="打开会话列表" aria-expanded="false">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+  </button>
+  <div id="topbar-title">
+    <span id="session-title">新的委托</span>
+    <span id="session-sub">Fairy · 待命</span>
+  </div>
+  <button id="btn-new" class="icon-btn" type="button" aria-label="新建会话">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+  </button>
+</header>
+
+<!-- ── 对话区 ───────────────────────────────────────────── -->
+<main id="chat" role="log" aria-live="polite" aria-label="对话内容">
+  <div id="empty-state">
+    <h1>Fairy</h1>
+    <p class="tagline">Ⅲ型总序式集成泛用人工智能 · 待命中</p>
+    <p class="hint">在下方输入内容，或按住麦克风说话。</p>
+    <div id="empty-actions">
+      <button class="chip" data-prompt="做个自我介绍。">自我介绍</button>
+      <button class="chip" data-prompt="今天有什么值得注意的事？">随便聊聊</button>
+    </div>
+    <p id="key-warning" class="warning" hidden>尚未配置 API Key，请到设置里填写后再开始对话。</p>
+  </div>
+  <div id="messages"></div>
+  <div id="scroll-anchor"></div>
+</main>
+
+<button id="btn-scroll-bottom" class="icon-btn floating" type="button" aria-label="回到底部" hidden>
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6"/></svg>
+</button>
+
+<!-- ── 输入区 ───────────────────────────────────────────── -->
+<footer id="composer">
+  <div id="composer-box">
+    <textarea id="input" rows="1" placeholder="向 Fairy 发送指令…"
+              enterkeyhint="send" autocomplete="off" autocapitalize="sentences"
+              aria-label="消息输入框"></textarea>
+    <div id="composer-actions">
+      <button id="btn-mic" class="icon-btn" type="button" aria-label="语音输入" aria-pressed="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3a3 3 0 0 1 3 3v5a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3z"/>
+          <path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>
+        </svg>
+      </button>
+      <button id="btn-send" class="icon-btn primary" type="button" aria-label="发送">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M12 5l7 7-7 7"/></svg>
+      </button>
+      <button id="btn-stop" class="icon-btn danger" type="button" aria-label="停止生成" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>
+      </button>
+    </div>
+  </div>
+  <div id="composer-status" role="status" aria-live="polite"></div>
+</footer>
+
+<!-- ── 立绘层 ───────────────────────────────────────────── -->
+<div id="mascot-layer" aria-hidden="true">
+  <div id="mascot-handle" role="button" tabindex="0" aria-label="打开 Fairy 快捷菜单">
+    <div id="mascot-host"></div>
+  </div>
+</div>
+
+<!-- ── 会话抽屉 ─────────────────────────────────────────── -->
+<div id="drawer-scrim" class="scrim" hidden></div>
+<aside id="drawer" aria-label="会话列表" aria-hidden="true">
+  <div class="drawer-head">
+    <span>委托记录</span>
+    <button id="btn-drawer-close" class="icon-btn" type="button" aria-label="关闭">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+  <div class="drawer-search">
+    <input id="session-search" type="search" placeholder="搜索会话…" aria-label="搜索会话">
+  </div>
+  <nav id="session-list" aria-label="会话"></nav>
+  <div class="drawer-foot">
+    <button id="btn-settings" class="wide-btn" type="button">设置</button>
+    <button id="btn-balance" class="wide-btn" type="button">余额与用量</button>
+  </div>
+</aside>
+
+<!-- ── 设置面板 ─────────────────────────────────────────── -->
+<section id="settings" class="panel" aria-label="设置" aria-hidden="true" hidden>
+  <div class="panel-head">
+    <h2>设置</h2>
+    <button class="icon-btn panel-close" type="button" aria-label="关闭设置">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+  <div class="panel-body">
+
+    <fieldset>
+      <legend>接入</legend>
+      <label class="field">
+        <span>API Key</span>
+        <input id="set-api-key" type="password" placeholder="sk-…" autocomplete="off" spellcheck="false">
+      </label>
+      <p class="field-note">Key 只保存在本机浏览器，直接发往 api.deepseek.com，不经过任何第三方服务器。</p>
+      <label class="field">
+        <span>API 地址</span>
+        <input id="set-base-url" type="text" inputmode="url" placeholder="https://api.deepseek.com" spellcheck="false">
+      </label>
+      <label class="field">
+        <span>模型</span>
+        <select id="set-model"></select>
+      </label>
+      <div class="row">
+        <button id="btn-refresh-models" class="mini-btn" type="button">刷新模型列表</button>
+        <button id="btn-test-key" class="mini-btn" type="button">测试连接</button>
+      </div>
+      <p id="conn-result" class="field-note" role="status"></p>
+    </fieldset>
+
+    <fieldset>
+      <legend>生成</legend>
+      <label class="field range">
+        <span>温度 <output id="out-temp">1.0</output></span>
+        <input id="set-temperature" type="range" min="0" max="2" step="0.1" value="1">
+      </label>
+      <label class="field range">
+        <span>单次最大输出 <output id="out-maxtok">4096</output></span>
+        <input id="set-max-tokens" type="range" min="512" max="8192" step="256" value="4096">
+      </label>
+      <label class="field switch">
+        <span>显示推理过程</span>
+        <input id="set-show-reasoning" type="checkbox" checked>
+      </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>人设</legend>
+      <label class="field switch">
+        <span>启用 Fairy 人设</span>
+        <input id="set-persona" type="checkbox" checked>
+      </label>
+      <label class="field">
+        <span>主人身份</span>
+        <select id="set-owner">
+          <option value="铃">铃</option>
+          <option value="哲">哲</option>
+          <option value="自定义">自定义</option>
+        </select>
+      </label>
+      <label class="field" id="owner-custom-field" hidden>
+        <span>自定义称呼</span>
+        <input id="set-owner-custom" type="text" placeholder="主人" spellcheck="false">
+      </label>
+      <label class="field">
+        <span>附加系统提示词（可选）</span>
+        <textarea id="set-extra-prompt" rows="3" placeholder="追加在 Fairy 人设之后…"></textarea>
+      </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>语音</legend>
+
+      <label class="field switch">
+        <span>自动朗读回复</span>
+        <input id="set-auto-read" type="checkbox">
+      </label>
+
+      <!-- ── 云端语音（推荐，支持 Fairy 音色） ── -->
+      <label class="field">
+        <span>语音合成方式</span>
+        <select id="set-tts-provider"></select>
+      </label>
+      <p id="provider-hint" class="field-note"></p>
+
+      <!-- 克隆入口：一键用内置录音，不依赖上面的选择 -->
+      <div class="row">
+        <button id="btn-clone-top" class="mini-btn primary" type="button">🎙 一键克隆 Fairy 音色</button>
+      </div>
+      <p id="clone-top-hint" class="field-note">
+        APK 已内置 Fairy 的参考录音，只需填入 SiliconFlow API Key，点一下即可克隆出她本人的音色。
+      </p>
+
+      <div id="sf-box" hidden>
+        <label class="field">
+          <span>SiliconFlow API Key</span>
+          <input id="set-sf-key" type="password" placeholder="sk-…" autocomplete="off" spellcheck="false">
+        </label>
+        <label class="field">
+          <span>模型</span>
+          <select id="set-sf-model">
+            <option value="FunAudioLLM/CosyVoice2-0.5B">CosyVoice2-0.5B（支持克隆）</option>
+            <option value="fishaudio/fish-speech-1.5">fish-speech-1.5（音色更自然）</option>
+            <option value="fnlp/MOSS-TTSD-v0.5">MOSS-TTSD-v0.5</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>音色 ID（克隆后自动填入）</span>
+          <input id="set-sf-voice" type="text" placeholder="留空则用预置音色 alex" spellcheck="false">
+        </label>
+        <label class="field">
+          <span>参考录音对应的文字</span>
+          <input id="set-sf-reftext" type="text" placeholder="录音里说的那句话（必填）" spellcheck="false">
+        </label>
+        <div class="row">
+          <button id="btn-clone-voice" class="mini-btn" type="button">用录音克隆 Fairy 音色</button>
+          <button id="btn-test-sf" class="mini-btn" type="button">测试云语音</button>
+        </div>
+        <input id="clone-audio-file" type="file" accept="audio/*" hidden>
+        <p id="clone-hint" class="field-note">
+          原理：上传一段 Fairy 的参考录音（5–10 秒，越清晰越好）<b>以及录音里说的那句话</b>，
+          服务会返回一个专属音色 ID，之后就能用她本人的声音朗读任意文字。
+        </p>
+      </div>
+
+      <div id="custom-box" hidden>
+        <label class="field">
+          <span>Base URL（OpenAI 兼容）</span>
+          <input id="set-custom-url" type="text" inputmode="url" placeholder="https://your-host/v1" spellcheck="false">
+        </label>
+        <label class="field">
+          <span>API Key</span>
+          <input id="set-custom-key" type="password" placeholder="可留空" autocomplete="off" spellcheck="false">
+        </label>
+        <label class="field">
+          <span>模型名</span>
+          <input id="set-custom-model" type="text" placeholder="如 tts-1" spellcheck="false">
+        </label>
+        <label class="field">
+          <span>音色名</span>
+          <input id="set-custom-voice" type="text" placeholder="如 zh-CN-female" spellcheck="false">
+        </label>
+        <p class="field-note">
+          任何兼容 <code>POST /audio/speech</code> 的服务都可以接入
+          （自建 TTS、其它云厂商等）。请求体：model / input / voice / response_format / speed。
+        </p>
+      </div>
+
+      <label class="field range">
+        <span>语速 <output id="out-rate">1.0</output></span>
+        <input id="set-rate" type="range" min="0.5" max="2" step="0.1" value="1">
+      </label>
+
+      <div class="row">
+        <button id="btn-test-voice" class="mini-btn" type="button">试听</button>
+        <button id="btn-voice-diag" class="mini-btn" type="button">语音自检</button>
+      </div>
+      <p id="speech-support" class="field-note"></p>
+      <div id="voice-diag" class="diag-box" hidden></div>
+      <div id="voice-diag-actions" class="row" hidden>
+        <button id="btn-tts-retry" class="mini-btn" type="button">重试初始化</button>
+        <button id="btn-tts-settings" class="mini-btn" type="button">系统语音设置</button>
+      </div>
+      <div class="row">
+        <button id="btn-copy-diag" class="mini-btn" type="button">复制诊断信息</button>
+        <button id="btn-clear-crash" class="mini-btn" type="button">清除崩溃记录</button>
+      </div>
+
+      <details id="cloud-stt-box">
+        <summary>云语音识别（可选，系统识别不可用时用）</summary>
+        <p class="field-note">
+          设备没有可用的系统识别服务时，可填入百度语音开放平台的凭据改用云识别。
+          凭据只保存在本机。申请地址：console.bce.baidu.com（语音技术 → 短语音识别）。
+        </p>
+        <label class="field">
+          <span>API Key</span>
+          <input id="set-stt-key" type="password" placeholder="留空则只用系统识别" autocomplete="off" spellcheck="false">
+        </label>
+        <label class="field">
+          <span>Secret Key</span>
+          <input id="set-stt-secret" type="password" placeholder="留空则只用系统识别" autocomplete="off" spellcheck="false">
+        </label>
+      </details>
+    </fieldset>
+
+    <fieldset>
+      <legend>悬浮球（语音唤醒）</legend>
+      <p class="field-note">
+        开启后屏幕上会出现一个小球，<b>点一下就能直接说话</b>，不用先打开 Fairy。
+        把小球拖到屏幕左/右边缘松手，它会自动收起成半个，不再挡视野；
+        点一下即可展开。
+      </p>
+      <label class="field switch">
+        <span>显示悬浮球</span>
+        <input id="set-float-enabled" type="checkbox">
+      </label>
+      <div class="row">
+        <button id="btn-float-perm" class="mini-btn" type="button">授予悬浮窗权限</button>
+        <button id="btn-float-refresh" class="mini-btn" type="button">刷新状态</button>
+      </div>
+      <p id="float-status" class="field-note"></p>
+    </fieldset>
+
+    <fieldset>
+      <legend>外观</legend>
+      <label class="field">
+        <span>主题</span>
+        <select id="set-theme">
+          <option value="dark">暗色</option>
+          <option value="light">亮色</option>
+          <option value="system">跟随系统</option>
+        </select>
+      </label>
+      <label class="field range">
+        <span>立绘大小 <output id="out-scale">100%</output></span>
+        <input id="set-scale" type="range" min="50" max="150" step="5" value="100">
+      </label>
+      <label class="field range">
+        <span>动画速度 <output id="out-anim">1.0×</output></span>
+        <input id="set-anim" type="range" min="0.5" max="2" step="0.1" value="1">
+      </label>
+      <label class="field switch">
+        <span>显示立绘</span>
+        <input id="set-mascot-visible" type="checkbox" checked>
+      </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>数据</legend>
+      <div class="row">
+        <button id="btn-export" class="mini-btn" type="button">导出全部会话</button>
+        <button id="btn-import" class="mini-btn" type="button">导入</button>
+        <button id="btn-clear-all" class="mini-btn danger" type="button">清空全部数据</button>
+      </div>
+      <input id="import-file" type="file" accept="application/json" hidden>
+      <p class="field-note" id="storage-note"></p>
+    </fieldset>
+
+    <p class="build-note">DeepSeek Fairy Mobile <span id="build-version"></span></p>
+  </div>
+</section>
+
+<!-- ── 余额面板 ─────────────────────────────────────────── -->
+<section id="balance" class="panel" aria-label="余额与用量" aria-hidden="true" hidden>
+  <div class="panel-head">
+    <h2>余额与用量</h2>
+    <button class="icon-btn panel-close" type="button" aria-label="关闭">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+  <div class="panel-body">
+    <div id="balance-content"><p class="field-note">读取中…</p></div>
+    <button id="btn-refresh-balance" class="mini-btn" type="button">刷新</button>
+    <fieldset>
+      <legend>本次会话</legend>
+      <div id="usage-content"></div>
+    </fieldset>
+  </div>
+</section>
+
+<!-- ── 立绘快捷菜单 ─────────────────────────────────────── -->
+<div id="mascot-menu-scrim" class="scrim" hidden></div>
+<div id="mascot-menu" role="menu" aria-hidden="true" hidden>
+  <button role="menuitem" data-action="new">新会话</button>
+  <button role="menuitem" data-action="read">朗读上一条</button>
+  <button role="menuitem" data-action="auto-read">自动朗读：<span data-bind="auto-read">关</span></button>
+  <button role="menuitem" data-action="balance">余额与用量</button>
+  <button role="menuitem" data-action="settings">设置</button>
+  <button role="menuitem" data-action="sleep">让 Fairy 休息</button>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+<div id="confirm" hidden>
+  <div class="confirm-card" role="dialog" aria-modal="true">
+    <p id="confirm-text"></p>
+    <div class="row">
+      <button id="confirm-no" class="mini-btn" type="button">取消</button>
+      <button id="confirm-yes" class="mini-btn danger" type="button">确定</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/bundle.js" defer></script>
+</body>
+</html>

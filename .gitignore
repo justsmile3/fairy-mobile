@@ -1,0 +1,31 @@
+# Node
+node_modules/
+
+# Android 构建产物
+android/.gradle/
+android/build/
+android/app/build/
+android/.gradle-tmp/
+android/local.properties
+
+# 打包输出
+dist/
+
+# 前端资源同步副本
+#
+# android/app/src/main/assets/www/ 里的内容是 tools/bundle.mjs 在构建时
+# 从项目根目录（index.html / css / js / icons / voice）自动复制过去的。
+# 源文件才是唯一真相，副本不入版本库，避免：
+#   - 改了源文件却忘记同步，导致两者不一致
+#   - diff 里出现大量重复内容
+android/app/src/main/assets/www/
+
+# 验收截图
+.verify/
+
+# 临时文件
+.tmp/
+
+# Python 缓存
+__pycache__/
+*.pyc

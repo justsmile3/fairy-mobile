@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      应用显示名由 build.gradle 的 resValue 按构建模式生成：
+        轻量版 -> "Fairy"
+        完整版 -> "Fairy 完整版"
+      这样两个包可同时安装且易于分辨（包名也不同，见 applicationId）。
+    -->
+</resources>

@@ -1,0 +1,247 @@
+# DeepSeek Fairy Mobile
+
+手机版 DeepSeek Fairy —— 一个**独立运行**、直连 DeepSeek 官方 API 的 PWA（渐进式 Web 应用）。
+
+不需要电脑上的 DSH 服务，也不需要任何中转服务器：手机浏览器直接把请求发往
+`api.deepseek.com`，API Key 只保存在手机本机的浏览器里。
+
+> 立绘、语音、人设源自 [Fairy-DSH](../../Fairy-DSH/) 插件套件（Apache-2.0）。
+> 本应用不包含《绝区零》的任何官方素材、语料或版权内容；人设仅以角色设定文字形式内嵌。
+
+---
+
+## 功能
+
+- 💬 **流式对话**：SSE 实时输出，支持中途停止、重新生成、复制、删除
+- 🧚 **立绘吉祥物**：矢量绘制的 Fairy 之眼，眨眼、视线跟随、思考/说话/聆听/警戒/休眠等状态动效，可拖动、可调大小与速度
+- 🔊 **语音朗读（TTS）**：自动朗读开关、可选音色、语速/音调，长文自动分句
+- 🎙️ **语音输入（STT）**：浏览器原生识别，支持中文连续识别
+- 🗂️ **会话管理**：多会话、自动起标题、搜索、删除，全部存本机 IndexedDB
+- ⚙️ **设置**：API Key、模型切换（`deepseek-chat` / `deepseek-reasoner`）、温度、最大输出、推理过程展示、主题（暗/亮/跟随系统）
+- 💰 **余额与用量**：直读 `/user/balance`，并在流式返回 `usage` 时统计 token
+- 📦 **离线可用**：Service Worker 缓存应用外壳；安装后即使电脑关机也能打开（对话仍需联网访问 DeepSeek）
+
+## 快速开始
+
+### 方式一：局域网安装到手机（最快）
+
+前提：电脑与手机连**同一个 Wi-Fi**。
+
+```sh
+# 在项目目录下
+node tools/serve.mjs
+```
+
+终端会打印一个形如 `http://192.168.x.x:8788/` 的局域网地址。用手机浏览器打开它，然后：
+
+- **Android Chrome**：菜单 →「安装应用」或「添加到主屏幕」
+- **iOS Safari**：分享按钮 →「添加到主屏幕」
+
+首次加载后应用外壳会被缓存，之后**无需再开电脑**也能从主屏幕打开。
+
+### 方式二：部署到公网（真·随时随地）
+
+本应用是纯静态站点，可部署到任意静态托管：
+
+- **GitHub Pages / Netlify / Vercel / Cloudflare Pages**：把整个目录作为站点根上传即可。
+- 也可用你自己的服务器：`python -m http.server` / nginx / 任何静态文件服务。
+
+> ⚠️ 建议用 **HTTPS** 访问。虽然 DeepSeek API 允许跨域，但：
+> 1. `navigator.clipboard`、Service Worker 离线、PWA「安装」提示等能力需要安全上下文；
+> 2. HTTP 明文下，局域网内其他设备可能嗅探到你的 API Key。
+> 局域网测试可以接受 `http://`，长期使用请走 HTTPS。
+
+## 打包成 Android APK
+
+```sh
+node tools/build-apk.mjs
+```
+
+产物：`dist/Fairy.apk`（约 **0.4 MB**，包名 `com.fairy.mobile`，应用名 **Fairy**）。
+
+### 零原生依赖
+
+本应用**不含任何原生库、模型或第三方 SDK**，原因：
+
+1. Android 规定原生库必须在 APK 内（targetSdk ≥ 24 时无法从包外 `dlopen`，
+   见[官方行为变更](https://developer.android.google.cn/about/versions/nougat/android-7.0-changes#ndk)）
+2. 而把原生库打进包会在部分设备上于**类加载阶段**崩溃 —— 早于 `onCreate`，
+   `try/catch` 拦不住
+
+因此语音朗读改为走**网络 API**，从根上规避这两个问题。
+构建脚本会自动校验产物中确实没有原生库。
+
+### 语音：支持用上 Fairy 的音色
+
+朗读有四种后端，在「设置 → 语音」里切换：
+
+| 方式 | 音色 | 需要配置 | 说明 |
+| --- | --- | --- | --- |
+| **SiliconFlow** | **可克隆成 Fairy 的音色** | API Key（需实名） | 推荐 |
+| 自定义 | 取决于服务 | Base URL 等 | 任意 OpenAI 兼容端点 |
+| 百度翻译语音 | 固定 | 无 | 免注册，开箱即用 |
+| 系统引擎 | 取决于设备 | 无 | 设备自带引擎 |
+
+默认的「自动选择」规则：填了 SiliconFlow Key 就用它，否则用百度 —— 
+**不配置也能出声，配置后自动升级**。
+
+👉 **详细步骤见 [docs/用上Fairy的音色.md](docs/用上Fairy的音色.md)**
+
+### 为什么在原生层发请求
+
+多数语音服务不返回 CORS 头，WebView 里直接 `fetch` 会被浏览器拦截。
+因此所有合成请求都由原生层（`CloudTts.java`）发出，页面只负责传参数。
+
+### 崩溃兜底
+
+若发生启动崩溃，会自动拉起 `CrashActivity`（独立进程），
+显示日志**并自动复制到剪贴板**，直接粘贴即可反馈。
+设置 → 语音 里另有「复制诊断信息」与「清除崩溃记录」。
+
+**手动构建**（等价于脚本内部步骤）：
+
+```sh
+set JAVA_HOME=..\.build-tools\jdk17
+set GRADLE_USER_HOME=..\.gradle-home
+set ANDROID_HOME=%LOCALAPPDATA%\Android\Sdk
+..\_env\gradle-8.7\bin\gradle.bat -p android assembleDebug
+```
+
+> 签名使用项目内置的 `debug.keystore`（alias `androiddebugkey`，密码 `android`）。
+> 发布到应用商店前请替换为正式签名并提高 `versionCode`。
+
+## 配置 API Key
+
+1. 在 [DeepSeek 开放平台](https://platform.deepseek.com/) 创建 API Key。
+2. App 内：左上角菜单 →「设置」→「接入」→ 填入 Key →「测试连接」。
+
+### Key 存在哪里？
+
+只存在**当前手机浏览器**的 `localStorage` 里，随「数据」导出/清除。请求直接发往
+`api.deepseek.com`，**不经过任何第三方服务器**（本应用没有自己的后端）。
+
+## 模型说明
+
+- `deepseek-chat`：默认，非思考模型，快。
+- `deepseek-reasoner`：思考模型，会输出推理过程（App 里默认折叠展示，可在设置中关闭）。
+
+可在设置里点「刷新模型列表」从接口拉取当前可用模型；接口不可用时使用内置的这两个。
+
+## 语音说明（平台差异）
+
+| 能力 | APK / Android | 浏览器（Chrome、Edge） | iOS Safari |
+| --- | --- | --- | --- |
+| 朗读（TTS） | ✅ 云端 API（支持 Fairy 克隆音色） | ✅ 系统音色 | ✅ 系统音色（首次需在点击中触发一次） |
+| 语音输入（STT） | ✅ 系统识别，可切换云识别 | ✅ | ✅（部分旧版 iOS 仅 Safari 支持） |
+
+- **APK 内**朗读走云端 TTS，音色可在设置里选择与克隆（见
+  [docs/用上Fairy的音色.md](docs/用上Fairy的音色.md)）。
+- **浏览器里**朗读走系统语音合成，音色由设备决定。
+- 语音输入识别结果会回填到输入框，可编辑后再发送。
+- 任一能力不可用时，App 会自动隐藏对应按钮并给出说明，不影响文字对话。
+
+### 悬浮球语音唤醒
+
+设置 → **悬浮球（语音唤醒）** 可开启一个常驻小圆球：
+
+- **点一下就能说话**，不用先打开 Fairy
+- 拖到屏幕左/右边缘松手 → **自动收起成半个**，不挡视野
+- 收起状态点一下即可展开
+
+相比「后台常驻监听唤醒词」，它不占麦克风、不耗电、也不受 ROM 后台限制。
+详见 [docs/悬浮球语音唤醒.md](docs/悬浮球语音唤醒.md)。
+
+## 隐私与数据
+
+- 对话内容、会话、设置**全部保存在手机本机**（IndexedDB / localStorage），不上传。
+- 外发的请求只有两类：
+  1. 发给 `api.deepseek.com` 的聊天请求（含你的 API Key 与对话上下文）
+  2. 使用云语音朗读时，**待朗读的文本**会发给你选择的服务商
+     （SiliconFlow / 百度 / 自建）；API Key 与音色 ID 只留在本机
+- 「设置 → 数据」可**导出全部会话**为 JSON 备份，或**清空全部数据**（含 Key）。
+
+## 已知边界
+
+手机版没有桌面 DSH 的**工具面**（文件、命令行、联网检索、MCP 等）。Fairy 人设中已内置
+「移动端能力边界」条款，让她不会谎称执行了这些操作。若需要能真正干活的 Agent 能力，
+请回到桌面 DSH + Fairy 插件套件。
+
+## 项目结构
+
+```
+fairy-mobile/
+├── index.html            # 应用外壳（加载 js/bundle.js 经典脚本）
+├── manifest.webmanifest  # PWA 清单
+├── sw.js                 # Service Worker（离线缓存）
+├── css/
+│   ├── app.css           # 应用样式（暗/亮主题）
+│   └── mascot.css        # 立绘样式
+├── js/
+│   ├── main.js           # 应用主逻辑（入口）
+│   ├── api.js            # DeepSeek API 客户端（SSE / 余额 / 模型）
+│   ├── store.js          # IndexedDB + localStorage 持久化
+│   ├── persona.js        # Fairy 人设与移动端能力边界
+│   ├── markdown.js       # 安全 Markdown 渲染
+│   ├── speech.js         # TTS + STT（浏览器原生 / APK 原生桥）
+│   ├── cloudtts.js       # 云端 TTS 客户端（多服务商 / 音色克隆）
+│   ├── cloudtts-ui.js    # 云端语音的设置界面
+│   ├── floating-ball.js  # 悬浮球（语音唤醒入口）的前端控制
+│   ├── mascot.js         # 立绘渲染与动效
+│   ├── ui.js             # DOM 工具
+│   └── bundle.js         # ← 构建产物（esbuild 打包，勿手改）
+├── voice/                # 内置的 Fairy 参考录音（用于克隆音色）
+├── icons/                # PWA 图标
+├── docs/                 # 使用文档（音色克隆、悬浮球）
+├── android/              # 原生 WebView 壳工程
+│   └── app/src/main/java/com/fairy/mobile/
+│       ├── MainActivity.java        # WebView 宿主 + 原生桥
+│       ├── FloatingBallService.java # 悬浮球（按立绘绘制）
+│       ├── CloudTts.java            # 云端 TTS（原生发请求，规避 CORS）
+│       ├── CloudStt.java            # 云端语音识别
+│       └── CrashActivity.java       # 崩溃兜底页（自动复制日志）
+├── tools/
+│   ├── bundle.mjs        # 打包 JS 为单文件经典脚本
+│   ├── build-apk.mjs     # 一键打包 APK
+│   ├── make-icons.py     # 图标生成（按立绘参数）
+│   ├── preview-floating-ball.py  # 悬浮球外观预览
+│   ├── check-floating-ball.py    # 悬浮球尺寸/吸附/健壮性校验
+│   ├── check-dom-refs.py # DOM 引用完整性检查
+│   ├── verify-apk.mjs    # APK 资源验收（真实浏览器 + 桥桩）
+│   ├── verify-voice.mjs  # 语音状态文案场景测试
+│   ├── serve.mjs         # 局域网静态服务器
+│   └── verify.mjs        # 浏览器端到端验收
+└── test/
+    ├── run.mjs           # 不依赖浏览器的契约测试
+    └── native-bridge.mjs # APK 原生语音桥契约测试
+```
+
+> ⚠️ **为什么必须打包**：Android WebView 用 `file://` 加载本地资源时，**ES 模块会被 CORS 拦截**
+> （模块脚本走 fetch、origin 为 `null`），入口脚本根本不会执行 —— 表现为「页面能渲染，
+> 但所有按钮都没反应」。因此 `index.html` 只加载 `js/bundle.js`（普通 `<script>`），
+> 源码模块仅供 Node 测试与阅读。改动 `js/*.js` 后必须重新打包。
+
+## 开发与验收
+
+```sh
+node tools/bundle.mjs             # 打包 js/main.js → js/bundle.js（改完源码必跑）
+node test/run.mjs                 # 契约测试（Markdown / 人设 / API / SSE / 静态资源）
+node test/native-bridge.mjs       # APK 原生语音桥契约测试（含异步就绪回归）
+node tools/serve.mjs              # 起本地服务
+node tools/verify.mjs             # 浏览器端到端验收 + 截图（需先起 serve）
+node tools/verify-apk.mjs         # APK 资源验收（file:// 严格策略，贴近真机）
+node tools/verify-apk.mjs --with-bridge   # 同上，另注入原生桥桩验证语音
+node tools/build-apk.mjs          # 打包 + 编译 APK（会自动先打包 JS）
+```
+
+`verify.mjs` 会以手机视口（390×844 · DPR2 · 触摸）打开 App，注入假的 SSE 后端，
+走通「输入 → 流式接收 → Markdown 渲染 → 落库」完整链路，并在 `.verify/` 下输出截图。
+
+> 注意：无头浏览器需要创建命名管道，在受限沙箱中无法启动；报 `platform_channel` 相关错误时
+> 请在允许的沙箱模式下运行 `verify.mjs`。
+
+## 许可
+
+- 本项目代码按 [MIT License](LICENSE) 发布。
+- 人设文字移植自 Fairy-DSH 的 agent preset。
+- 本应用不包含也不主张《绝区零》相关版权、商标或官方关联权利。
+  内置的参考录音仅用于个人使用者的语音合成音色克隆。

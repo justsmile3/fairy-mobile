@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 与 PWA 暗色背景一致，避免启动时白屏闪烁 -->
+    <style name="Theme.FairyMobile" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/fairy_bg</item>
+        <item name="android:statusBarColor">@color/fairy_bg</item>
+        <item name="android:navigationBarColor">@color/fairy_bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

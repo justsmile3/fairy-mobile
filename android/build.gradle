@@ -1,0 +1,4 @@
+// 顶层构建脚本：只声明 AGP 版本，真正的应用模块见 app/build.gradle
+plugins {
+    id 'com.android.application' version '8.2.1' apply false
+}
