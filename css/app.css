@@ -287,7 +287,18 @@ button { cursor: pointer; }
   -webkit-overflow-scrolling: touch;
   padding: var(--pad);
   scroll-behavior: smooth;
-  /* 背景层用 absolute 定位相对它，因此需要定位上下文 */
+  /*
+    定位上下文：背景层（Canvas）用 sticky 相对它定位。
+
+    这里**刻意不设 z-index**。
+    原因：层叠关系要的是「Canvas 背景 < 立绘 < 消息文字」。
+
+    · 若给 #chat 设 z-index:1，它会整体盖住立绘（立绘 z-index:0），
+      立绘就被藏起来了 —— 实测确实如此。
+    · 不设 z-index 时 #chat 不产生层叠上下文，
+      内部元素按各自的 z-index 与根层叠上下文比较，
+      于是 #hdd-bg(-1) < #mascot-layer(0) < #messages(1) 的次序成立。
+  */
   position: relative;
 }
 @media (prefers-reduced-motion: reduce) { #chat { scroll-behavior: auto; } }
@@ -308,9 +319,13 @@ button { cursor: pointer; }
   height: calc(100vh - var(--pad) * 2);
   margin-bottom: calc(-100vh + var(--pad) * 2);
   margin-left: calc(var(--pad) * -1);
-  z-index: 0;
+  /*
+    -1：沉到最底，让立绘(0)与消息(1)都显示在它之上。
+    因为 #chat 没有 z-index（未建立层叠上下文），
+    这个负值是与根层叠上下文比较的，不会跑到 body 背景之后。
+  */
+  z-index: -1;
   pointer-events: none;
-  /* 让背景在浅色主题下也不刺眼 */
   opacity: 1;
 }
 
@@ -723,15 +738,49 @@ body:has(#chat.is-parallaxing) #mascot-layer {
 #composer-status[data-tone="error"] { color: var(--danger); }
 
 /* ── 立绘层 ───────────────────────────────────────────── */
+
+/*
+  立绘现在是**背景水印**，不再浮在内容之上。
+
+  层级关系（从下到上）：
+    Canvas 背景 (z-index 0，在 #chat 内实际绘制在最底层)
+    → 立绘 #mascot-layer (z-index 0)
+    → 消息内容 #messages (z-index 1)
+
+  这样消息文字会直接压在立绘上显示，立绘读起来像"嵌在背景里的形象"，
+  而不是一个挡在内容前面的控件。
+
+  代价与对策：
+    文字压在立绘上时，立绘的深色部分可能影响可读性。
+    这里给立绘整体降低不透明度（见下面的 opacity），
+    并在消息气泡上保留半透明底 —— 两者配合保证文字始终清楚。
+*/
 #mascot-layer {
   position: fixed;
   right: 10px;
   bottom: calc(86px + env(safe-area-inset-bottom, 0px));
-  z-index: 25;
+  /* 低于 #messages(1)，高于 Canvas 背景 —— 即"文字在上、立绘在下" */
+  z-index: 0;
+  /* 作为背景元素时不透明度略降，避免与文字抢视线 */
+  opacity: .88;
+  /* 背景水印不该拦截 touch：否则消息区右侧会有一块拖不动 */
+  pointer-events: none;
   touch-action: none;
-  transition: transform var(--dur) var(--ease);
+  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
 }
-#mascot-layer[data-dragging="true"] { transition: none; }
+/*
+  但立绘本身是可拖动/可点击的（快捷菜单），
+  因此把交互能力还给它的把手 —— 只有这一小块可点，
+  其余区域（透明的外接矩形部分）仍然穿透。
+*/
+#mascot-layer #mascot-handle {
+  pointer-events: auto;
+}
+/* 拖动或聚焦时恢复完全不透明，便于看清操作对象 */
+#mascot-layer[data-dragging="true"],
+#mascot-layer:focus-within {
+  opacity: 1;
+}
 #mascot-layer[data-hidden="true"] { display: none; }
 #mascot-handle {
   width: 96px;

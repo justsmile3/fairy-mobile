@@ -106,9 +106,6 @@ export const DEFAULT_SETTINGS = Object.freeze({
   fuseLevel: 0.7,       // 界面融合强度：0 = 传统卡片，1 = 完全融入背景
   bgDensity: 1,         // 网格密度
   bgBrightness: 1,      // 整体亮度
-  // 文字区遮罩强度：压掉正文区域的网格，避免"字和线混在一起"。
-  // 0 = 网格完整透出，1 = 文字区完全压平。默认 0.72 兼顾融入感与可读性。
-  bgTextVeil: 0.72,
   bgOffsetX: 0,         // 背景水平偏移（px）
   bgOffsetY: 0,         // 背景垂直偏移（px）
   // 外观

@@ -527,51 +527,100 @@ async function runChecks(ws) {
       bgParams.fuse && bgParams.density && bgParams.bright,
       '');
 
-    // 文字区遮罩：存在控件，且确实改变了绘制结果
-    const veilCtl = await evaluate(`
-      (() => {
-        const r = document.querySelector('#set-bg-veil');
-        return { exists: !!r, val: r?.value || '', hasOut: !!document.querySelector('#out-bg-veil') };
-      })()
-    `);
-    add('有文字区遮罩滑块',
-      veilCtl.exists && veilCtl.hasOut,
-      `默认 ${veilCtl.val}`);
+    /* ── 层级：文字在立绘之上 ── */
 
-    // 遮罩必须真的改变画布输出：对比强度 0 与 1 时的中心像素
-    const veilEffect = await evaluate(`
-      (async () => {
-        const canvas = document.querySelector('#hdd-bg');
-        if (!canvas) return { ok: false, why: '无画布' };
-        const ctx = canvas.getContext('2d');
-        const r = document.querySelector('#set-bg-veil');
-        const sample = () => {
-          // 取一个必然落在遮罩范围内、且原本有网格线经过的位置
-          const x = Math.floor(canvas.width * 0.5);
-          const y = Math.floor(canvas.height * 0.42);
-          const d = ctx.getImageData(x, y, 1, 1).data;
-          return [d[0], d[1], d[2]];
+    // 立绘必须是"背景水印"：低于消息内容，高于画布背景
+    const layers = await evaluate(`
+      (() => {
+        const cs = (sel) => {
+          const el = document.querySelector(sel);
+          return el ? getComputedStyle(el) : null;
         };
-        // 关掉遮罩
-        r.value = '0';
-        r.dispatchEvent(new Event('input', { bubbles: true }));
-        await new Promise(res => setTimeout(res, 220));
-        const off = sample();
-        // 开到最大
-        r.value = '1';
-        r.dispatchEvent(new Event('input', { bubbles: true }));
-        await new Promise(res => setTimeout(res, 220));
-        const on = sample();
-        // 恢复默认
-        r.value = '0.72';
-        r.dispatchEvent(new Event('input', { bubbles: true }));
-        await new Promise(res => setTimeout(res, 220));
-        return { ok: true, off, on, changed: off.join() !== on.join() };
+        const mascot = cs('#mascot-layer');
+        const chat = cs('#chat');
+        const messages = cs('#messages');
+        const canvas = cs('#hdd-bg');
+        return {
+          mascotZ: mascot ? mascot.zIndex : null,
+          chatZ: chat ? chat.zIndex : null,
+          messagesZ: messages ? messages.zIndex : null,
+          canvasZ: canvas ? canvas.zIndex : null,
+          mascotOpacity: mascot ? mascot.opacity : null,
+          mascotEvents: mascot ? mascot.pointerEvents : null,
+        };
       })()
     `);
-    add('遮罩开关会改变绘制结果',
-      veilEffect.ok && veilEffect.changed,
-      veilEffect.ok ? `关=${veilEffect.off} 开=${veilEffect.on}` : veilEffect.why);
+    const mz = Number(layers.mascotZ);
+    const cz = Number(layers.chatZ);
+    add('立绘位于内容下层（背景水印）',
+      Number.isFinite(mz) && layers.chatZ === 'auto',
+      `立绘 z=${layers.mascotZ}，对话区 z=${layers.chatZ}`);
+
+    /*
+      ★ 回归：立绘必须**真的可见**，不能又被上层容器盖住。
+
+      这里踩过一次坑：#chat 设了 z-index:1 之后整体盖住立绘（z-index:0），
+      立绘在 DOM 里存在、尺寸也正常，但用户完全看不到 ——
+      只查 z-index 数值是发现不了的。
+      因此改为在立绘中心做命中测试：该点最上层若是 #chat，
+      说明立绘已被遮住。
+    */
+    const visible = await evaluate(`
+      (() => {
+        const layer = document.querySelector('#mascot-layer');
+        if (!layer) return { ok: false, why: '无立绘层' };
+        const r = layer.getBoundingClientRect();
+        const cx = Math.round(r.left + r.width / 2);
+        const cy = Math.round(r.top + r.height / 2);
+        const els = document.elementsFromPoint(cx, cy);
+        const ids = els.map((e) => e.id || e.tagName);
+        // 立绘必须出现在命中链中
+        const inChain = els.some((e) => e.id === 'mascot-layer' || e.closest?.('#mascot-layer'));
+        // 且它不能排在 #chat 之后（那样就是被盖住了）
+        const chatIdx = ids.indexOf('chat');
+        const mascotIdx = ids.findIndex((x) => x === 'mascot-layer' || x === 'mascot-host'
+          || x === 'mascot-handle' || x === 'DIV');
+        return { ok: inChain, ids: ids.slice(0, 5), chatIdx, mascotIdx };
+      })()
+    `);
+    add('立绘实际可见（未被容器盖住）',
+      visible.ok,
+      visible.ok ? `命中链 ${visible.ids.join(' > ')}` : visible.why);
+
+    add('对话区不建立层叠上下文（保证立绘夹在背景与文字之间）',
+      layers.chatZ === 'auto',
+      `#chat z-index=${layers.chatZ}`);
+
+    // 立绘整体不拦截触摸（背景元素不该挡住消息区的滑动），
+    // 但它的把手必须可点（要能拖动与打开菜单）
+    const hitTest = await evaluate(`
+      (() => {
+        const layer = document.querySelector('#mascot-layer');
+        const handle = document.querySelector('#mascot-handle');
+        if (!layer || !handle) return { ok: false, why: '元素缺失' };
+        return {
+          ok: true,
+          layerEvents: getComputedStyle(layer).pointerEvents,
+          handleEvents: getComputedStyle(handle).pointerEvents,
+        };
+      })()
+    `);
+    add('立绘不拦截触摸，但其把手可点',
+      hitTest.ok && hitTest.layerEvents === 'none' && hitTest.handleEvents === 'auto',
+      hitTest.ok ? `层=${hitTest.layerEvents} 把手=${hitTest.handleEvents}` : hitTest.why);
+
+    // 背景画布必须在最底层（z-index 为负），否则会盖住立绘
+    const canvasLayer = await evaluate(`
+      (() => {
+        const c = document.querySelector('#hdd-bg');
+        if (!c) return { ok: false, why: '无画布' };
+        const z = getComputedStyle(c).zIndex;
+        return { ok: z === '-1', z };
+      })()
+    `);
+    add('背景画布沉在最底层（不盖住立绘）',
+      canvasLayer.ok,
+      `#hdd-bg z-index=${canvasLayer.z}`);
 
     // 提示音设置项
     const chimeUi = await evaluate(`
