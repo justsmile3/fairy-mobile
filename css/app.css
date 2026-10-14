@@ -737,51 +737,148 @@ body:has(#chat.is-parallaxing) #mascot-layer {
 #composer-status[data-tone="warn"] { color: var(--warn); }
 #composer-status[data-tone="error"] { color: var(--danger); }
 
-/* ── 立绘层 ───────────────────────────────────────────── */
+/* ── 开场动画 ─────────────────────────────────────────── */
 
 /*
-  立绘现在是**背景水印**，不再浮在内容之上。
-
-  层级关系（从下到上）：
-    Canvas 背景 (z-index 0，在 #chat 内实际绘制在最底层)
-    → 立绘 #mascot-layer (z-index 0)
-    → 消息内容 #messages (z-index 1)
-
-  这样消息文字会直接压在立绘上显示，立绘读起来像"嵌在背景里的形象"，
-  而不是一个挡在内容前面的控件。
-
-  代价与对策：
-    文字压在立绘上时，立绘的深色部分可能影响可读性。
-    这里给立绘整体降低不透明度（见下面的 opacity），
-    并在消息气泡上保留半透明底 —— 两者配合保证文字始终清楚。
+  打开 App 时全屏过一次。只在启动时出现，之后完全移除，
+  不占用对话界面 —— 对话区保持干净。
 */
-#mascot-layer {
+#splash {
   position: fixed;
-  right: 10px;
-  bottom: calc(86px + env(safe-area-inset-bottom, 0px));
-  /* 低于 #messages(1)，高于 Canvas 背景 —— 即"文字在上、立绘在下" */
-  z-index: 0;
-  /* 作为背景元素时不透明度略降，避免与文字抢视线 */
-  opacity: .88;
-  /* 背景水印不该拦截 touch：否则消息区右侧会有一块拖不动 */
-  pointer-events: none;
-  touch-action: none;
-  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
+  inset: 0;
+  z-index: 200;                /* 盖住一切，包括顶栏与设置面板 */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 26px;
+  /* 与主题一致，避免启动瞬间闪白 */
+  background: var(--bg);
+  overflow: hidden;
 }
-/*
-  但立绘本身是可拖动/可点击的（快捷菜单），
-  因此把交互能力还给它的把手 —— 只有这一小块可点，
-  其余区域（透明的外接矩形部分）仍然穿透。
-*/
-#mascot-layer #mascot-handle {
-  pointer-events: auto;
+#splash[hidden] { display: none; }
+
+/* 立绘背后的光晕，随动画扩散 */
+#splash-glow {
+  position: absolute;
+  width: min(78vw, 380px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--accent) 34%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 12%, transparent) 42%,
+    transparent 70%
+  );
+  filter: blur(6px);
+  animation: splash-glow 1600ms var(--ease) both;
 }
-/* 拖动或聚焦时恢复完全不透明，便于看清操作对象 */
-#mascot-layer[data-dragging="true"],
-#mascot-layer:focus-within {
-  opacity: 1;
+@keyframes splash-glow {
+  0%   { opacity: 0; transform: scale(.55); }
+  38%  { opacity: 1; transform: scale(1); }
+  100% { opacity: .55; transform: scale(1.16); }
 }
-#mascot-layer[data-hidden="true"] { display: none; }
+
+/* 立绘本体 */
+#splash-mascot {
+  position: relative;
+  width: min(46vw, 190px);
+  aspect-ratio: 1;
+  animation: splash-mascot 1600ms var(--ease) both;
+}
+@keyframes splash-mascot {
+  0%   { opacity: 0; transform: scale(.62) translateY(14px); filter: blur(5px); }
+  42%  { opacity: 1; transform: scale(1.03) translateY(0); filter: blur(0); }
+  60%  { transform: scale(1) translateY(0); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+#splash-title {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  animation: splash-text 1600ms var(--ease) both;
+}
+@keyframes splash-text {
+  0%, 34% { opacity: 0; transform: translateY(8px); }
+  62%     { opacity: 1; transform: translateY(0); }
+  100%    { opacity: 1; transform: translateY(0); }
+}
+.splash-name {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  /* 与空状态标题同一套渐变，保持品牌一致 */
+  background: linear-gradient(120deg, var(--accent), #b997ed 55%, #efa5cc);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.splash-sub {
+  font-size: 12px;
+  letter-spacing: .1em;
+  color: var(--text-2);
+}
+
+/* 淡出：由 JS 加 .is-leaving 触发，动画结束后移除节点 */
+#splash.is-leaving {
+  animation: splash-out 420ms var(--ease) both;
+}
+@keyframes splash-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+/* 用户关掉动效时不做任何过渡，直接显示终态 */
+@media (prefers-reduced-motion: reduce) {
+  #splash, #splash-glow, #splash-mascot, #splash-title { animation: none !important; }
+  #splash.is-leaving { opacity: 0; }
+}
+
+/* ── 委托记录里的立绘 ─────────────────────────────────── */
+
+.drawer-mascot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px 12px;
+  /* 与下方搜索框之间用一条发光线分隔，延续终端面板的语汇 */
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+.drawer-mascot button {
+  flex: 0 0 auto;
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  outline: none;
+  transition: transform 160ms var(--ease);
+}
+.drawer-mascot button:hover { transform: scale(1.06); }
+.drawer-mascot button:active { transform: scale(.96); }
+.drawer-mascot button:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+.drawer-mascot-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.dm-name {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--text);
+}
+.dm-sub {
+  font-size: 11px;
+  color: var(--text-2);
+  letter-spacing: .04em;
+}
 #mascot-handle {
   width: 96px;
   height: 96px;

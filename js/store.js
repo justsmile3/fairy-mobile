@@ -113,7 +113,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   scale: 100,
   animSpeed: 1,
   mascotVisible: true,
-  mascotPos: null,
+  // 立绘位置不再需要保存：它固定在「委托记录」抽屉顶部，由布局决定
 });
 
 /* ── 设置（localStorage） ─────────────────────────────── */

@@ -102,10 +102,19 @@
   <div id="composer-status" role="status" aria-live="polite"></div>
 </footer>
 
-<!-- ── 立绘层 ───────────────────────────────────────────── -->
-<div id="mascot-layer" aria-hidden="true">
-  <div id="mascot-handle" role="button" tabindex="0" aria-label="打开 Fairy 快捷菜单">
-    <div id="mascot-host"></div>
+<!-- ── 开场动画 ─────────────────────────────────────────── -->
+
+<!--
+  打开 App 时全屏过一次：立绘放大 + 发光 + 眨眼，约 1.6 秒后淡出。
+  只在启动时出现，之后不再占用对话界面 ——
+  对话区保持干净，立绘改在「委托记录」抽屉顶部常驻。
+-->
+<div id="splash" aria-hidden="true" hidden>
+  <div id="splash-glow"></div>
+  <div id="splash-mascot"></div>
+  <div id="splash-title">
+    <span class="splash-name">Fairy</span>
+    <span class="splash-sub">Ⅲ型总序式集成泛用人工智能</span>
   </div>
 </div>
 
@@ -118,6 +127,22 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
     </button>
   </div>
+
+  <!--
+    委托记录的形象标识：立绘从对话界面移到这里常驻。
+    尺寸比原来小（64px），作为板块的视觉锚点而不是主体内容。
+    仍可点击打开快捷菜单 —— 那套交互在这里更顺手（抽屉本就是操作区）。
+  -->
+  <div class="drawer-mascot">
+    <button id="mascot-handle" type="button" aria-label="打开 Fairy 快捷菜单">
+      <div id="mascot-host"></div>
+    </button>
+    <div class="drawer-mascot-text">
+      <span class="dm-name">Fairy</span>
+      <span class="dm-sub" id="drawer-mascot-sub">待命中</span>
+    </div>
+  </div>
+
   <div class="drawer-search">
     <input id="session-search" type="search" placeholder="搜索会话…" aria-label="搜索会话">
   </div>

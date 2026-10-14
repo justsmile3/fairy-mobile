@@ -258,8 +258,8 @@ async function runChecks(ws) {
   const fileUrl = `file:///${ENTRY.replace(/\\/g, '/')}`;
   await ws.send('Page.navigate', { url: fileUrl });
 
-  // 等待脚本执行完成（立绘渲染出来即代表 bundle 已运行）
-  await waitFor(evaluate, `!!document.querySelector('#mascot-layer svg')`, 15000);
+  // 等待脚本执行完成（抽屉里的立绘渲染出来即代表 bundle 已运行）
+  await waitFor(evaluate, `!!document.querySelector('#mascot-host svg')`, 15000);
   add('入口脚本已执行（立绘 SVG 渲染）', true);
 
   // 样式生效
@@ -459,13 +459,13 @@ async function runChecks(ws) {
     add('背景已实际绘制（非空白）', painted.ok,
       painted.ok ? `中心像素 rgba(${painted.rgba.join(',')})` : painted.why);
 
-    // 拖动**不应**移动背景（本次需求：背景静止，位置靠设置调节）
+    // 拖动**不应**移动背景（需求：背景静止，位置靠设置调节）
     const dragResult = await evaluate(`
       (async () => {
         const chat = document.querySelector('#chat');
-        const pet = document.querySelector('#mascot-layer');
-        if (!chat || !pet) return { ok: false, why: '元素缺失' };
-        const before = pet.style.transform || '';
+        const canvas = document.querySelector('#hdd-bg');
+        if (!chat || !canvas) return { ok: false, why: '元素缺失' };
+        const before = canvas.style.transform || '';
         const rect = chat.getBoundingClientRect();
         const y = rect.top + 120;
         const x0 = rect.left + rect.width - 40;
@@ -476,13 +476,14 @@ async function runChecks(ws) {
         fire('pointerdown', x0);
         for (let i = 1; i <= 6; i++) fire('pointermove', x0 - i * 18);
         await new Promise(r => setTimeout(r, 150));
-        const during = pet.style.transform || '';
+        const during = canvas.style.transform || '';
         fire('pointerup', x0 - 108);
         await new Promise(r => setTimeout(r, 300));
-        return { ok: during === before, before, during };
+        const after = canvas.style.transform || '';
+        return { ok: during === before && after === before, before, during, after };
       })()
     `);
-    add('拖动不会移动背景/立绘（背景静止）',
+    add('拖动对话区不会移动背景（背景静止）',
       dragResult.ok,
       dragResult.ok ? '拖动无位移' : `位移了：${dragResult.during}`);
 
@@ -527,89 +528,39 @@ async function runChecks(ws) {
       bgParams.fuse && bgParams.density && bgParams.bright,
       '');
 
-    /* ── 层级：文字在立绘之上 ── */
+    /* ── 层级：对话界面的内容层 ── */
 
-    // 立绘必须是"背景水印"：低于消息内容，高于画布背景
+    /*
+      立绘已移出对话界面，因此这里不再断言"文字压在立绘之上"。
+      改为确认对话区自身的层级仍然正确：
+      背景画布在最底，消息内容在其上，且 #chat 不建立层叠上下文
+      （它若设了 z-index，会连带影响内部所有元素的层叠关系，
+       早期就是因为这个把立绘整个盖住了）。
+    */
     const layers = await evaluate(`
       (() => {
         const cs = (sel) => {
           const el = document.querySelector(sel);
           return el ? getComputedStyle(el) : null;
         };
-        const mascot = cs('#mascot-layer');
         const chat = cs('#chat');
         const messages = cs('#messages');
         const canvas = cs('#hdd-bg');
         return {
-          mascotZ: mascot ? mascot.zIndex : null,
           chatZ: chat ? chat.zIndex : null,
           messagesZ: messages ? messages.zIndex : null,
           canvasZ: canvas ? canvas.zIndex : null,
-          mascotOpacity: mascot ? mascot.opacity : null,
-          mascotEvents: mascot ? mascot.pointerEvents : null,
         };
       })()
     `);
-    const mz = Number(layers.mascotZ);
-    const cz = Number(layers.chatZ);
-    add('立绘位于内容下层（背景水印）',
-      Number.isFinite(mz) && layers.chatZ === 'auto',
-      `立绘 z=${layers.mascotZ}，对话区 z=${layers.chatZ}`);
-
-    /*
-      ★ 回归：立绘必须**真的可见**，不能又被上层容器盖住。
-
-      这里踩过一次坑：#chat 设了 z-index:1 之后整体盖住立绘（z-index:0），
-      立绘在 DOM 里存在、尺寸也正常，但用户完全看不到 ——
-      只查 z-index 数值是发现不了的。
-      因此改为在立绘中心做命中测试：该点最上层若是 #chat，
-      说明立绘已被遮住。
-    */
-    const visible = await evaluate(`
-      (() => {
-        const layer = document.querySelector('#mascot-layer');
-        if (!layer) return { ok: false, why: '无立绘层' };
-        const r = layer.getBoundingClientRect();
-        const cx = Math.round(r.left + r.width / 2);
-        const cy = Math.round(r.top + r.height / 2);
-        const els = document.elementsFromPoint(cx, cy);
-        const ids = els.map((e) => e.id || e.tagName);
-        // 立绘必须出现在命中链中
-        const inChain = els.some((e) => e.id === 'mascot-layer' || e.closest?.('#mascot-layer'));
-        // 且它不能排在 #chat 之后（那样就是被盖住了）
-        const chatIdx = ids.indexOf('chat');
-        const mascotIdx = ids.findIndex((x) => x === 'mascot-layer' || x === 'mascot-host'
-          || x === 'mascot-handle' || x === 'DIV');
-        return { ok: inChain, ids: ids.slice(0, 5), chatIdx, mascotIdx };
-      })()
-    `);
-    add('立绘实际可见（未被容器盖住）',
-      visible.ok,
-      visible.ok ? `命中链 ${visible.ids.join(' > ')}` : visible.why);
-
-    add('对话区不建立层叠上下文（保证立绘夹在背景与文字之间）',
+    add('对话区不建立层叠上下文',
       layers.chatZ === 'auto',
       `#chat z-index=${layers.chatZ}`);
+    add('消息内容在背景之上',
+      Number(layers.messagesZ) > Number(layers.canvasZ),
+      `消息 z=${layers.messagesZ}，画布 z=${layers.canvasZ}`);
 
-    // 立绘整体不拦截触摸（背景元素不该挡住消息区的滑动），
-    // 但它的把手必须可点（要能拖动与打开菜单）
-    const hitTest = await evaluate(`
-      (() => {
-        const layer = document.querySelector('#mascot-layer');
-        const handle = document.querySelector('#mascot-handle');
-        if (!layer || !handle) return { ok: false, why: '元素缺失' };
-        return {
-          ok: true,
-          layerEvents: getComputedStyle(layer).pointerEvents,
-          handleEvents: getComputedStyle(handle).pointerEvents,
-        };
-      })()
-    `);
-    add('立绘不拦截触摸，但其把手可点',
-      hitTest.ok && hitTest.layerEvents === 'none' && hitTest.handleEvents === 'auto',
-      hitTest.ok ? `层=${hitTest.layerEvents} 把手=${hitTest.handleEvents}` : hitTest.why);
-
-    // 背景画布必须在最底层（z-index 为负），否则会盖住立绘
+    // 背景画布必须在最底层（z-index 为负），否则会盖住内容
     const canvasLayer = await evaluate(`
       (() => {
         const c = document.querySelector('#hdd-bg');
@@ -618,7 +569,7 @@ async function runChecks(ws) {
         return { ok: z === '-1', z };
       })()
     `);
-    add('背景画布沉在最底层（不盖住立绘）',
+    add('背景画布沉在最底层',
       canvasLayer.ok,
       `#hdd-bg z-index=${canvasLayer.z}`);
 
@@ -807,10 +758,10 @@ async function runChecks(ws) {
     const toggleFlow = await evaluate(`
       (async () => {
         const btn = document.querySelector('#btn-mascot-toggle');
-        const layer = document.querySelector('#mascot-layer');
+        const wrap = document.querySelector('.drawer-mascot');
         const cb = document.querySelector('#set-mascot-visible');
         const read = () => ({
-          layerHidden: layer.dataset.hidden,
+          layerHidden: String(wrap.hidden),
           pressed: btn.getAttribute('aria-pressed'),
           checkbox: cb.checked,
         });
@@ -829,13 +780,13 @@ async function runChecks(ws) {
       toggleFlow.afterFirst.layerHidden === 'true'
       && toggleFlow.afterFirst.pressed === 'false'
       && toggleFlow.afterFirst.checkbox === false,
-      `layer=${toggleFlow.afterFirst.layerHidden} pressed=${toggleFlow.afterFirst.pressed} cb=${toggleFlow.afterFirst.checkbox}`);
+      `容器 hidden=${toggleFlow.afterFirst.layerHidden} pressed=${toggleFlow.afterFirst.pressed} cb=${toggleFlow.afterFirst.checkbox}`);
     // 第二次点击：恢复
     add('再次点击能展开立绘并恢复状态',
       toggleFlow.afterSecond.layerHidden === 'false'
       && toggleFlow.afterSecond.pressed === 'true'
       && toggleFlow.afterSecond.checkbox === true,
-      `layer=${toggleFlow.afterSecond.layerHidden} pressed=${toggleFlow.afterSecond.pressed}`);
+      `容器 hidden=${toggleFlow.afterSecond.layerHidden} pressed=${toggleFlow.afterSecond.pressed}`);
 
     // 反向同步：改设置里的开关，顶栏按钮也要跟着变
     const reverseSync = await evaluate(`
@@ -855,6 +806,84 @@ async function runChecks(ws) {
     add('从设置改开关时顶栏按钮同步更新',
       reverseSync.off === 'false' && reverseSync.on === 'true',
       `设置关闭后按钮=${reverseSync.off}，开启后=${reverseSync.on}`);
+
+    /* ── 立绘位置：开场动画 + 委托记录，对话界面无常驻立绘 ── */
+
+    /*
+      立绘的落点在本轮做过结构性调整：
+        对话界面   → 取消常驻立绘
+        启动时     → 全屏开场动画
+        委托记录   → 抽屉顶部常驻
+      因此这里的断言相应改写。核心是确认"三处各就各位"，
+      尤其是对话界面**确实没有**立绘残留。
+    */
+
+    // 对话界面不应再有常驻立绘层
+    const chatClean = await evaluate(`
+      (() => ({
+        hasFloatingLayer: !!document.querySelector('#mascot-layer'),
+        splashGone: !document.querySelector('#splash'),
+      }))()
+    `);
+    add('对话界面无常驻立绘（已移除）',
+      chatClean.hasFloatingLayer === false,
+      chatClean.hasFloatingLayer ? '仍存在 #mascot-layer' : '');
+    add('开场动画播完后节点被移除',
+      chatClean.splashGone,
+      chatClean.splashGone ? '' : '仍残留 #splash');
+
+    // 委托记录抽屉顶部应有立绘
+    const drawerMascot = await evaluate(`
+      (async () => {
+        const openBtn = document.querySelector('#btn-menu');
+        openBtn?.click();
+        await new Promise(r => setTimeout(r, 450));
+        const wrap = document.querySelector('.drawer-mascot');
+        const host = document.querySelector('#mascot-host');
+        const handle = document.querySelector('#mascot-handle');
+        if (!wrap || !host) return { ok: false, why: '抽屉里找不到立绘容器' };
+        const r = wrap.getBoundingClientRect();
+        const insideDrawer = !!wrap.closest('#drawer');
+        return {
+          ok: true,
+          visible: r.width > 0 && r.height > 0,
+          hasSvg: !!host.querySelector('svg'),
+          insideDrawer,
+          hasHandleButton: handle?.tagName === 'BUTTON',
+        };
+      })()
+    `);
+    add('委托记录顶部有立绘且可见',
+      drawerMascot.ok && drawerMascot.visible && drawerMascot.hasSvg && drawerMascot.insideDrawer,
+      drawerMascot.ok ? `可见=${drawerMascot.visible} SVG=${drawerMascot.hasSvg}` : drawerMascot.why);
+    add('立绘是可聚焦的按钮（键盘可达）',
+      drawerMascot.hasHandleButton === true, '');
+
+    // 点击立绘应打开快捷菜单
+    const menuFlow = await evaluate(`
+      (async () => {
+        const handle = document.querySelector('#mascot-handle');
+        const menu = document.querySelector('#mascot-menu');
+        if (!handle || !menu) return { ok: false, why: '元素缺失' };
+        const before = menu.hidden;
+        handle.click();
+        await new Promise(r => setTimeout(r, 260));
+        const afterOpen = menu.hidden;
+        return { ok: true, before, afterOpen };
+      })()
+    `);
+    add('点击抽屉里的立绘会打开快捷菜单',
+      menuFlow.ok && menuFlow.before === true && menuFlow.afterOpen === false,
+      menuFlow.ok ? `点击前 hidden=${menuFlow.before}，点击后 hidden=${menuFlow.afterOpen}` : menuFlow.why);
+
+    // 关闭抽屉与菜单，避免影响后续断言
+    await evaluate(`
+      (() => {
+        document.querySelector('#mascot-menu-scrim')?.click();
+        document.querySelector('#btn-drawer-close')?.click();
+      })()
+    `);
+    await sleep(320);
 
     /* ── 联网搜索 ── */
 

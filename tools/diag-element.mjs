@@ -92,7 +92,7 @@ async function main() {
     const svgHit = await evalJs(`
       (() => {
         const out = [];
-        document.querySelectorAll('#mascot-layer svg').forEach((svg) => {
+        document.querySelectorAll('#mascot-host svg, #splash-mascot svg').forEach((svg) => {
           const r = svg.getBoundingClientRect();
           const inside = ${X} >= r.left && ${X} <= r.right
                       && ${Y} >= r.top && ${Y} <= r.bottom;
@@ -140,7 +140,8 @@ async function main() {
     const layers = await evalJs(`
       (() => {
         const out = [];
-        const root = document.querySelector('#mascot-layer');
+        const root = document.querySelector('#mascot-host')
+                  || document.querySelector('#splash-mascot');
         if (!root) return out;
         root.querySelectorAll('*').forEach((el) => {
           const cs = getComputedStyle(el);

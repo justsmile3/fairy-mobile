@@ -124,7 +124,7 @@ async function main() {
 
     const fileUrl = `file:///${ENTRY.replace(/\\/g, '/')}`;
     await ws.send('Page.navigate', { url: fileUrl });
-    await waitForEval(ws, `!!document.querySelector('#mascot-layer svg')`, 15000);
+    await waitForEval(ws, `!!document.querySelector('#mascot-host svg')`, 15000);
 
     const results = [];
     for (const scenario of SCENARIOS) {

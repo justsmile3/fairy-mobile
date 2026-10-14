@@ -412,12 +412,23 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
 
 /* ── 立绘 ─────────────────────────────────────────────── */
 
+/**
+ * 初始化立绘。
+ *
+ * 位置变更（与早期实现的差异）：
+ *   立绘**不再常驻对话界面** —— 那样会与背景、文字层反复纠缠，
+ *   而且用户拖动后还要保存坐标，状态多、收益小。
+ *   现在它常驻在「委托记录」抽屉顶部，作为该板块的形象标识；
+ *   启动时另有一次全屏开场动画（见 initSplash）。
+ *
+ * 因此这里不再需要：拖动绑定、位置保存与恢复。
+ * 快捷菜单保留 —— 抽屉本就是操作区，点击立绘打开菜单很顺手。
+ */
 async function initMascot() {
   const host = $('#mascot-host');
-  const layer = $('#mascot-layer');
-  if (!host || !layer) return;
+  if (!host) return;
 
-  if (!state.settings.mascotVisible) { layer.dataset.hidden = 'true'; return; }
+  if (state.settings.mascotVisible === false) return;
 
   try {
     state.mascot = createMascot(host, {
@@ -427,12 +438,10 @@ async function initMascot() {
     });
   } catch (err) {
     console.warn('[fairy] 立绘初始化失败', err);
-    layer.dataset.hidden = 'true';
     return;
   }
 
-  restoreMascotPosition();
-  bindMascotDrag();
+  bindMascotMenu();
   scheduleSleep();
 }
 
@@ -453,10 +462,23 @@ function safeMascot(method, ...args) {
 
 function setMascotState(next) {
   if (!state.mascot) return;
-  const layer = $('#mascot-layer');
-  if (layer) layer.dataset.state = next;
   safeMascot('setState', next);
+  // 抽屉顶部的状态文字与立绘同步，让"它在想什么"有个文字出口
+  const sub = $('#drawer-mascot-sub');
+  if (sub) sub.textContent = MASCOT_STATE_LABELS[next] || '待命';
 }
+
+/** 立绘状态的中文说明，用于抽屉顶部的副标题 */
+const MASCOT_STATE_LABELS = {
+  idle: '待命中',
+  thinking: '思考中',
+  speaking: '说话中',
+  listening: '聆听中',
+  happy: '心情不错',
+  alert: '注意',
+  error: '出错了',
+  sleeping: '休眠中',
+};
 
 /** 闲置一段时间后让 Fairy 睡下，任何交互都会唤醒 */
 function scheduleSleep(ms = 90000) {
@@ -473,99 +495,91 @@ function wake() {
   scheduleSleep();
 }
 
-/** 把立绘放到绝对坐标（px），并夹紧到视口内 */
-function placeMascot(left, top) {
-  const layer = $('#mascot-layer');
-  if (!layer) return { left: 0, top: 0 };
-  const size = layer.offsetWidth || 96;
-  const maxLeft = Math.max(0, window.innerWidth - size);
-  const maxTop = Math.max(0, window.innerHeight - size);
-  const x = Math.min(Math.max(left, 0), maxLeft);
-  const y = Math.min(Math.max(top, 0), maxTop);
-  layer.style.left = `${x}px`;
-  layer.style.top = `${y}px`;
-  layer.style.right = 'auto';
-  layer.style.bottom = 'auto';
-  layer.style.transform = 'none';
-  return { left: x, top: y };
-}
-
-function restoreMascotPosition() {
-  const pos = state.settings.mascotPos;
-  if (!pos || typeof pos.x !== 'number' || typeof pos.y !== 'number') return;
-  placeMascot(pos.x, pos.y);
-}
-
-function bindMascotDrag() {
+/**
+ * 绑定立绘的交互。
+ *
+ * 立绘现在固定在抽屉顶部，因此**不需要拖动与位置保存** ——
+ * 位置由布局决定，不再是一份需要在多端同步的可变状态。
+ * 只保留"点击打开快捷菜单"这一项交互（外加键盘可达性）。
+ */
+function bindMascotInteraction() {
   const handle = $('#mascot-handle');
-  const layer = $('#mascot-layer');
-  if (!handle || !layer) return;
+  if (!handle) return;
 
-  let dragging = false;
-  let moved = false;
-  let startX = 0;
-  let startY = 0;
-  let originLeft = 0;
-  let originTop = 0;
-
-  handle.addEventListener('pointerdown', (e) => {
-    if (e.button !== undefined && e.button !== 0) return;
-    dragging = true;
-    moved = false;
-    startX = e.clientX;
-    startY = e.clientY;
-    const rect = layer.getBoundingClientRect();
-    originLeft = rect.left;
-    originTop = rect.top;
-    layer.dataset.dragging = 'true';
-    handle.setPointerCapture?.(e.pointerId);
+  handle.addEventListener('click', () => {
     wake();
+    toggleMascotMenu();
   });
+}
 
-  handle.addEventListener('pointermove', (e) => {
-    if (!dragging) return;
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
-    if (!moved && Math.hypot(dx, dy) < 6) return;
-    if (!moved) {
-      // 第一次真正拖动时，先把当前位置固化为绝对坐标，避免 right/bottom 参考系跳变
-      const rect = layer.getBoundingClientRect();
-      originLeft = rect.left;
-      originTop = rect.top;
-      placeMascot(originLeft, originTop);
-      moved = true;
+/* ── 开场动画 ─────────────────────────────────────────── */
+
+/** 开场动画时长（ms）。与 CSS 里 #splash-mascot 的 animation 时长保持一致。 */
+const SPLASH_HOLD_MS = 1600;
+/** 淡出时长（ms），与 CSS 的 splash-out 一致 */
+const SPLASH_FADE_MS = 420;
+
+/**
+ * 播放启动动画。
+ *
+ * 立绘从对话界面移到这里：只在打开 App 时全屏出现一次，
+ * 之后整个节点被移除，不占用对话界面，也不影响任何后续交互。
+ *
+ * 设计取舍：
+ *   - **不阻塞启动**：动画与数据加载并行，动画只是覆盖层。
+ *     若等动画播完再初始化，会白白拖慢冷启动。
+ *   - **可跳过**：任意点击/按键立即结束动画，不让用户干等。
+ *   - **尊重减弱动效**：系统开启"减弱动态效果"时直接跳过，
+ *     不播放任何缩放与淡入。
+ *   - **异常不致命**：整段包在 try 里，动画失败也照常进入应用。
+ */
+function initSplash() {
+  const splash = $('#splash');
+  if (!splash) return;
+
+  const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+  if (reduced) {
+    splash.remove();
+    return;
+  }
+
+  const host = $('#splash-mascot');
+  let splashMascot = null;
+  try {
+    if (host) {
+      splashMascot = createMascot(host, {
+        theme: document.documentElement.dataset.theme || 'dark',
+        scale: 1,
+        animationSpeed: 1,
+      });
+      // 开场时先"醒着"，动画末尾自然进入 idle
+      splashMascot.setState?.('idle');
     }
-    placeMascot(originLeft + dx, originTop + dy);
-  });
+  } catch (err) {
+    // 立绘画不出来也不影响动画继续（还有光晕与标题）
+    console.warn('[fairy] 开场立绘初始化失败', err);
+  }
 
-  const endDrag = (e) => {
-    if (!dragging) return;
-    dragging = false;
-    layer.dataset.dragging = 'false';
-    handle.releasePointerCapture?.(e.pointerId);
-    if (!moved) {
-      toggleMascotMenu();
-      return;
-    }
-    const rect = layer.getBoundingClientRect();
-    patchSettings({ mascotPos: { x: Math.round(rect.left), y: Math.round(rect.top) } });
-    state.settings = getSettings();
-  };
+  splash.hidden = false;
 
-  handle.addEventListener('pointerup', endDrag);
-  handle.addEventListener('pointercancel', endDrag);
+  let finished = false;
+  function finish() {
+    if (finished) return;
+    finished = true;
+    document.removeEventListener('pointerdown', finish);
+    document.removeEventListener('keydown', finish);
 
-  handle.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      toggleMascotMenu();
-    }
-  });
+    splash.classList.add('is-leaving');
+    setTimeout(() => {
+      try { splashMascot?.destroy?.(); } catch { /* 忽略 */ }
+      splash.remove();
+    }, SPLASH_FADE_MS);
+  }
 
-  window.addEventListener('resize', () => {
-    const rect = layer.getBoundingClientRect();
-    placeMascot(rect.left, rect.top);
-  });
+  // 动画期间任意交互即可跳过
+  document.addEventListener('pointerdown', finish, { passive: true });
+  document.addEventListener('keydown', finish, { passive: true });
+  setTimeout(finish, SPLASH_HOLD_MS);
 }
 
 /* ── 立绘快捷菜单 ─────────────────────────────────────── */
@@ -573,18 +587,28 @@ function bindMascotDrag() {
 function toggleMascotMenu(force) {
   const menu = $('#mascot-menu');
   const scrim = $('#mascot-menu-scrim');
-  const layer = $('#mascot-layer');
   const open = force !== undefined ? force : menu.hidden;
   menu.hidden = !open;
   scrim.hidden = !open;
   menu.setAttribute('aria-hidden', String(!open));
   if (!open) return;
 
-  const rect = layer.getBoundingClientRect();
+  // 菜单锚定在立绘把手上（立绘现在位于抽屉顶部，不再是固定定位的悬浮层）
+  const anchor = $('#mascot-handle');
+  if (!anchor) return;
+  const rect = anchor.getBoundingClientRect();
   const mw = menu.offsetWidth || 200;
   const mh = menu.offsetHeight || 240;
-  const left = Math.min(Math.max(rect.left + rect.width / 2 - mw / 2, 8), window.innerWidth - mw - 8);
-  const top = rect.top - mh - 8 > 8 ? rect.top - mh - 8 : Math.min(rect.bottom + 8, window.innerHeight - mh - 8);
+  // 优先放在立绘下方；下方放不下则翻到上方
+  const below = rect.bottom + 8;
+  const top = below + mh <= window.innerHeight - 8
+    ? below
+    : Math.max(8, rect.top - mh - 8);
+  // 水平方向与立绘对齐，并夹紧到视口内
+  const left = Math.min(
+    Math.max(rect.left + rect.width / 2 - mw / 2, 8),
+    Math.max(8, window.innerWidth - mw - 8),
+  );
   menu.style.left = `${left}px`;
   menu.style.top = `${top}px`;
 }
@@ -1530,7 +1554,9 @@ function saveSettings(patch) {
   applyTheme();
   safeMascot('setScale', state.settings.scale / 100);
   safeMascot('setAnimationSpeed', state.settings.animSpeed);
-  $('#mascot-layer').dataset.hidden = state.settings.mascotVisible ? 'false' : 'true';
+  // 立绘显隐改为控制抽屉顶部那一块（不再有悬浮层）
+  const drawerMascot = $('.drawer-mascot');
+  if (drawerMascot) drawerMascot.hidden = state.settings.mascotVisible === false;
   // 顶栏的立绘开关同步状态（设置里改也会反映到按钮上）
   syncMascotToggle();
   state.tts?.setRate?.(Number(state.settings.rate));
@@ -1590,11 +1616,11 @@ function bindSettingsUI() {
     saveSettings({ mascotVisible: next });
     const cb = $('#set-mascot-visible');
     if (cb) cb.checked = next;
-    // 展开时给立绘一个轻微的"出现"动效，让它被注意到
+    // 展开时给抽屉里的立绘一个轻微的出现动效，让它被注意到
     if (next) {
-      const layer = $('#mascot-layer');
-      if (layer && !window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) {
-        layer.animate(
+      const target = $('#mascot-handle');
+      if (target && !window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) {
+        target.animate(
           [{ transform: 'scale(.82)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 }],
           { duration: 260, easing: 'cubic-bezier(.2,.8,.2,1)' },
         );
@@ -1960,7 +1986,11 @@ async function boot() {
   bindComposer();
   bindSettingsUI();
   bindMascotMenu();
+  bindMascotInteraction();
   updateComposerState();
+
+  // 开场动画：与后续初始化并行，只是一个覆盖层，不阻塞启动
+  try { initSplash(); } catch (err) { console.warn('[fairy] 开场动画失败', err); }
 
   // ── 视差背景 ──
   //
