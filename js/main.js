@@ -27,6 +27,10 @@ import {
 } from './cloudtts.js';
 import { initCloudTtsUi } from './cloudtts-ui.js';
 import { initFloatingBall } from './floating-ball.js';
+import {
+  shouldSearch, buildQuery, search, formatForPrompt, injectSearchContext,
+} from './search.js';
+import { initSearchUi } from './search-ui.js';
 
 const BUILD_VERSION = '0.1.0';
 
@@ -49,6 +53,8 @@ const state = {
 
 /** 悬浮球控制器（boot 时创建），设置面板打开时用它刷新状态 */
 let floatingBall = null;
+/** 联网搜索的设置界面控制器 */
+let searchUi = null;
 
 /* ── 主题 ─────────────────────────────────────────────── */
 
@@ -880,7 +886,34 @@ async function runCompletion(seq) {
 
   const historyForRequest = state.messages;
   const systemPrompt = buildSystemPrompt(settings);
-  const messages = buildRequestMessages(systemPrompt, historyForRequest);
+  let messages = buildRequestMessages(systemPrompt, historyForRequest);
+
+  // ── 联网搜索（可选）
+  //
+  // 由关键词判断是否值得联网：日常闲聊、写作、代码问题不必搜，
+  // 只有涉及实时信息时才查。搜不到就照常回答，不打断流程。
+  const lastUser = [...state.messages].reverse().find((m) => m.role === 'user');
+  if (settings.searchEnabled && lastUser && shouldSearch(lastUser.content)) {
+    try {
+      const query = buildQuery(lastUser.content);
+      setStatus(`正在联网检索「${query}」…`);
+      const found = await search(query, {
+        engine: settings.searchEngine || 'bing',
+        count: Number(settings.searchCount) || 5,
+      });
+      if (found.ok) {
+        messages = injectSearchContext(messages, formatForPrompt(query, found.results));
+        setStatus(`已获取 ${found.results.length} 条联网结果。`);
+      } else {
+        // 搜索失败不阻塞对话，只是没有额外资料
+        console.warn('[fairy] 联网搜索未成功：', found.error);
+        setStatus('');
+      }
+    } catch (err) {
+      console.warn('[fairy] 联网搜索异常：', err);
+      setStatus('');
+    }
+  }
 
   try {
     await streamChat({
@@ -1004,6 +1037,7 @@ function openPanel(sel) {
     syncSettingsUI();
     // 悬浮球权限可能在系统设置里刚被授予，回到这里要立即反映真实状态
     try { floatingBall?.renderStatus?.(); } catch { /* 忽略 */ }
+    try { searchUi?.syncUi?.(); } catch { /* 忽略 */ }
   }
 }
 
@@ -1512,6 +1546,12 @@ async function boot() {
     save: (patch) => saveSettings(patch),
     startListening: () => startListening(),
     setStatus: (text, tone) => setStatus(text, tone),
+  });
+
+  // 联网搜索设置
+  searchUi = initSearchUi({
+    getSettings: () => state.settings,
+    save: (patch) => saveSettings(patch),
   });
 
   // 启动时把云识别凭据推给原生（原生侧不持久化，每次启动都要推）

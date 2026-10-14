@@ -56,6 +56,8 @@ node tools/serve.mjs
 ## 功能
 
 - 💬 **流式对话**：SSE 实时输出，支持中途停止、重新生成、复制、删除
+- 🌐 **联网搜索**：涉及实时信息的问题会自动联网检索再回答，并标注来源。
+  **免 API Key**（见 [docs/联网搜索.md](docs/联网搜索.md)）
 - 🧚 **立绘吉祥物**：矢量绘制的 Fairy 之眼，眨眼、视线跟随、思考/说话/聆听/警戒/休眠等状态动效，可拖动、可调大小与速度
 - 🔊 **语音朗读**：云端 TTS，**支持用一段参考录音克隆出 Fairy 的音色**
   （见 [docs/用上Fairy的音色.md](docs/用上Fairy的音色.md)）
@@ -231,6 +233,8 @@ fairy-mobile/
 │   ├── speech.js         # TTS + STT（浏览器原生 / APK 原生桥）
 │   ├── cloudtts.js       # 云端 TTS 客户端（多服务商 / 音色克隆）
 │   ├── cloudtts-ui.js    # 云端语音的设置界面
+│   ├── search.js         # 联网搜索（免密钥，多引擎）
+│   ├── search-ui.js      # 联网搜索的设置界面
 │   ├── floating-ball.js  # 悬浮球（语音唤醒入口）的前端控制
 │   ├── mascot.js         # 立绘渲染与动效
 │   ├── ui.js             # DOM 工具

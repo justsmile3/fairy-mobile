@@ -84,6 +84,9 @@ public class MainActivity extends Activity {
     private CloudStt cloudStt;
     private boolean useCloudStt = true;
 
+    // ── 联网搜索 ──────────────────────────────────────────
+    private SearchClient searchClient;
+
     // ── 系统识别 ──────────────────────────────────────────
     private SpeechRecognizer recognizer;
     private boolean sttListening = false;
@@ -236,6 +239,7 @@ public class MainActivity extends Activity {
         safeInit("系统语音引擎", this::initTts);
         safeInit("云语音", this::initCloudTts);
         safeInit("云识别", this::initCloudStt);
+        safeInit("联网搜索", this::initSearch);
 
         webView.loadUrl("file:///android_asset/www/index.html");
         setContentView(webView);
@@ -304,6 +308,16 @@ public class MainActivity extends Activity {
             });
         } catch (Throwable e) {
             cloudStt = null;
+        }
+    }
+
+    /* ── 联网搜索 ──────────────────────────────────────── */
+
+    private void initSearch() {
+        try {
+            searchClient = new SearchClient();
+        } catch (Throwable e) {
+            searchClient = null;
         }
     }
 
@@ -1200,6 +1214,32 @@ public class MainActivity extends Activity {
             }
         }
 
+        /* ── 联网搜索 ── */
+
+        /**
+         * 发起一次联网搜索。paramsJson 见 js/search.js 的 search()。
+         * 结果异步回传：window.__fairySearch.onResult(ok, payloadJson)
+         *
+         * 注意：这里**不能**直接等待结果再返回 —— @JavascriptInterface 的方法
+         * 运行在 WebView 的 JS 线程上，阻塞它会导致页面卡死。
+         * 因此立即返回，结果通过回调轮询送回。
+         */
+        @JavascriptInterface
+        public void searchWeb(String paramsJson) {
+            if (searchClient == null) {
+                notifyJs("window.__fairySearch && window.__fairySearch.onResult && "
+                        + "window.__fairySearch.onResult(false, '搜索模块不可用')");
+                return;
+            }
+            searchClient.search(paramsJson);
+            startSearchCallbackPump();
+        }
+
+        @JavascriptInterface
+        public String searchAvailable() {
+            return searchClient != null ? "1" : "0";
+        }
+
         /* ── 诊断 ── */
 
         @JavascriptInterface
@@ -1247,14 +1287,21 @@ public class MainActivity extends Activity {
     /** 页面最后一次传给云 TTS 的参数，供系统引擎不可用时回退使用 */
     private volatile String lastCloudParams = "{}";
 
-    /** 轮询取用上传回调（CloudTts 在后台线程写，这里转成 JS 调用） */
-    private void startUploadCallbackPump() {
+    /**
+     * 通用回调轮询。
+     *
+     * 为什么用轮询：这些回调由后台线程产生（上传音色、搜索），
+     * 在后台线程直接操作 WebView 会崩；持有 WebView 引用又不安全。
+     * 折中做法是把结果放进静态字段，主线程定期取走并转成 JS 调用。
+     */
+    private void startCallbackPump(java.util.function.Supplier<String> source, long timeoutMs) {
         final android.os.Handler h = new android.os.Handler(getMainLooper());
-        final long deadline = System.currentTimeMillis() + 120_000;
+        final long deadline = System.currentTimeMillis() + timeoutMs;
         Runnable r = new Runnable() {
             @Override
             public void run() {
-                String js = CloudTts.takeUploadCallback();
+                String js = null;
+                try { js = source.get(); } catch (Throwable ignored) { }
                 if (js != null && !js.isEmpty()) {
                     notifyJs(js);
                     return;
@@ -1263,5 +1310,15 @@ public class MainActivity extends Activity {
             }
         };
         h.postDelayed(r, 300);
+    }
+
+    /** 轮询取用上传回调（CloudTts 在后台线程写，这里转成 JS 调用） */
+    private void startUploadCallbackPump() {
+        startCallbackPump(CloudTts::takeUploadCallback, 120_000);
+    }
+
+    /** 轮询取用搜索回调 */
+    private void startSearchCallbackPump() {
+        startCallbackPump(SearchClient::takeCallback, 40_000);
     }
 }

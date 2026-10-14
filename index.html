@@ -297,6 +297,35 @@
     </fieldset>
 
     <fieldset>
+      <legend>联网搜索</legend>
+      <p class="field-note">
+        开启后，涉及实时信息的问题（新闻、价格、天气、最新版本等）
+        会先联网检索，再结合结果回答，并标注来源。
+        <b>不需要 API Key</b>，直接用公开搜索结果。
+      </p>
+      <label class="field switch">
+        <span>允许联网搜索</span>
+        <input id="set-search-enabled" type="checkbox">
+      </label>
+      <label class="field">
+        <span>搜索引擎</span>
+        <select id="set-search-engine"></select>
+      </label>
+      <label class="field">
+        <span>每次取几条结果</span>
+        <select id="set-search-count">
+          <option value="3">3 条（最快）</option>
+          <option value="5">5 条（推荐）</option>
+          <option value="8">8 条（更全面）</option>
+        </select>
+      </label>
+      <div class="row">
+        <button id="btn-search-test" class="mini-btn" type="button">测试搜索</button>
+      </div>
+      <p id="search-status" class="field-note"></p>
+    </fieldset>
+
+    <fieldset>
       <legend>悬浮球（语音唤醒）</legend>
       <p class="field-note">
         开启后屏幕上会出现一个小球，<b>点一下就能直接说话</b>，不用先打开 Fairy。

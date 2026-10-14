@@ -58,6 +58,12 @@ export const DEFAULT_SETTINGS = Object.freeze({
   // 云语音识别凭据（百度语音开放平台；留空则只用系统识别）
   sttApiKey: '',
   sttSecretKey: '',
+
+  // ── 联网搜索 ────────────────────────────────────────
+  // 免密钥：直接抓取公开结果页解析，无需申请 API Key
+  searchEnabled: true,
+  searchEngine: 'bing',
+  searchCount: 5,
   // 外观
   theme: 'dark',
   scale: 100,

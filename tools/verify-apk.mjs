@@ -79,6 +79,25 @@ window.AndroidBridge = (() => {
     sttCloudReady: () => '0',
     // 诊断
     clearCrash: () => {},
+
+    // 联网搜索：立即回调一个假结果，验证链路
+    searchWeb: (paramsJson) => {
+      calls.searchWeb = (calls.searchWeb || 0) + 1;
+      calls.searchParams = paramsJson;
+      setTimeout(() => {
+        if (window.__fairySearch && window.__fairySearch.onResult) {
+          window.__fairySearch.onResult(true, JSON.stringify({
+            engine: 'bing',
+            query: 'test',
+            results: [
+              { title: '测试结果一', url: 'https://example.com/1', snippet: '这是第一条测试摘要。' },
+              { title: '测试结果二', url: 'https://example.com/2', snippet: '这是第二条测试摘要。' },
+            ],
+          }));
+        }
+      }, 80);
+    },
+    searchAvailable: () => '1',
     // 悬浮球
     floatingBallStatus: () => JSON.stringify({
       supported: '1',
@@ -407,6 +426,43 @@ async function runChecks(ws) {
       })()
     `);
     add('保留手动上传录音的备选入口', hasFileInput);
+
+    /* ── 联网搜索 ── */
+
+    const searchUi = await evaluate(`
+      (() => ({
+        toggle: !!document.querySelector('#set-search-enabled'),
+        engineSel: !!document.querySelector('#set-search-engine'),
+        engineCount: document.querySelector('#set-search-engine')?.options.length || 0,
+        testBtn: !!document.querySelector('#btn-search-test'),
+        status: document.querySelector('#search-status')?.textContent || '',
+      }))()
+    `);
+    add('设置里有联网搜索开关与引擎选择',
+      searchUi.toggle && searchUi.engineSel && searchUi.testBtn,
+      `引擎选项 ${searchUi.engineCount} 个`);
+
+    add('搜索引擎下拉已填充选项',
+      searchUi.engineCount >= 3,
+      String(searchUi.engineCount));
+
+    // 测试搜索：桥桩返回假结果，验证链路与展示
+    await evaluate(`
+      (() => {
+        window.__calls.searchWeb = 0;
+        document.querySelector('#btn-search-test')?.click();
+      })()
+    `);
+    await sleep(1000);
+    const searchResult = await evaluate(`
+      (() => ({
+        called: window.__calls.searchWeb || 0,
+        status: document.querySelector('#search-status')?.textContent || '',
+      }))()
+    `);
+    add('测试搜索会调用原生搜索桥',
+      searchResult.called > 0,
+      searchResult.status.slice(0, 70));
 
     /* ── 悬浮球（语音唤醒）── */
 
