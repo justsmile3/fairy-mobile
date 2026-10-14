@@ -420,6 +420,35 @@
     </fieldset>
 
     <fieldset>
+      <legend>能力与记忆</legend>
+      <p class="field-note">
+        Fairy 可以调用工具获取<b>真实数据</b>：设备状态、读写「Fairy 文档区」里的文件、
+        以及长期记忆。文件操作<b>只限于应用自己的目录</b>，
+        不会触碰手机上的其他位置。
+      </p>
+      <label class="field switch">
+        <span>允许调用工具</span>
+        <input id="set-tools-enabled" type="checkbox" checked>
+      </label>
+      <label class="field switch">
+        <span>启用长期记忆</span>
+        <input id="set-memory-enabled" type="checkbox" checked>
+      </label>
+      <p id="tools-hint" class="field-note"></p>
+
+      <div class="row">
+        <button id="btn-memory-manage" class="mini-btn" type="button">查看长期记忆</button>
+        <button id="btn-doc-path" class="mini-btn" type="button">文档区位置</button>
+      </div>
+      <div id="memory-panel" class="diag-box" hidden>
+        <div id="memory-list"></div>
+        <div class="row">
+          <button id="btn-memory-clear" class="mini-btn danger" type="button">清空全部记忆</button>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset>
       <legend>联网搜索</legend>
       <p class="field-note">
         开启后，涉及实时信息的问题（新闻、价格、天气、最新版本等）

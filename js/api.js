@@ -159,6 +159,7 @@ export async function streamChat(params, handlers = {}, signal) {
   const {
     apiKey, baseUrl, model, messages,
     temperature = 1, maxTokens = 4096, includeUsage = true,
+    tools = null, toolChoice = null,
   } = params;
 
   const url = `${normalizeBaseUrl(baseUrl)}/chat/completions`;
@@ -169,6 +170,12 @@ export async function streamChat(params, handlers = {}, signal) {
     max_tokens: maxTokens,
     stream: true,
   };
+  // 只在确实有工具时才带上这两个字段 ——
+  // 部分 OpenAI 兼容端点不认识 tools，空数组也可能触发 400
+  if (tools && tools.length) {
+    baseBody.tools = tools;
+    if (toolChoice) baseBody.tool_choice = toolChoice;
+  }
 
   async function attempt(withUsage) {
     const body = withUsage ? { ...baseBody, stream_options: { include_usage: true } } : baseBody;
@@ -190,20 +197,28 @@ export async function streamChat(params, handlers = {}, signal) {
       }
       throw new ApiError(describeHttpError(res.status, text), { status: res.status });
     }
-    await consumeSse(res, handlers);
-    return { retryWithoutUsage: false };
+    const collected = await consumeSse(res, handlers);
+    return { retryWithoutUsage: false, collected };
   }
 
   const first = await attempt(includeUsage);
-  if (first.retryWithoutUsage) await attempt(false);
+  if (first.retryWithoutUsage) {
+    const second = await attempt(false);
+    return second.collected || { content: '', toolCalls: [] };
+  }
+  return first.collected || { content: '', toolCalls: [] };
 }
 
 async function consumeSse(res, handlers) {
+  // 累积本轮的内容与工具调用，返回给调用方
+  const collected = { content: '', toolCalls: [] };
+  const sink = makeCollector(collected, handlers);
+
   if (!res.body || !res.body.getReader) {
     // 极老浏览器：退化为一次性读取
     const text = await res.text();
-    parseSseText(text, handlers);
-    return;
+    parseSseText(text, sink);
+    return collected;
   }
 
   const reader = res.body.getReader();
@@ -215,7 +230,7 @@ async function consumeSse(res, handlers) {
     try {
       chunk = await reader.read();
     } catch (err) {
-      if (err && err.name === 'AbortError') return;
+      if (err && err.name === 'AbortError') return collected;
       throw networkError(err);
     }
     if (chunk.done) break;
@@ -226,14 +241,48 @@ async function consumeSse(res, handlers) {
     while ((idx = buffer.indexOf('\n')) >= 0) {
       const line = buffer.slice(0, idx).replace(/\r$/, '');
       buffer = buffer.slice(idx + 1);
-      handleSseLine(line, handlers);
+      handleSseLine(line, sink);
     }
   }
-  if (buffer.trim()) handleSseLine(buffer.replace(/\r$/, ''), handlers);
+  if (buffer.trim()) handleSseLine(buffer.replace(/\r$/, ''), sink);
+  return collected;
 }
 
-function parseSseText(text, handlers) {
-  text.split('\n').forEach((line) => handleSseLine(line.replace(/\r$/, ''), handlers));
+/**
+ * 生成一个收集器：把 SSE 增量写进 collected，同时转发给外部 handlers。
+ *
+ * 为什么需要它：
+ *   工具调用必须拿到**完整的** tool_calls 才能执行，
+ *   而流式响应里参数是分片到达的（同一 index 的多段 arguments 需要拼接）。
+ *   调用方（对话主流程）则需要拿完整结果继续下一轮，
+ *   因此这里既累积、也转发。
+ */
+function makeCollector(collected, handlers) {
+  return {
+    onUsage: handlers.onUsage,
+    onReasoning: handlers.onReasoning,
+    onContent(text) {
+      collected.content += text;
+      if (typeof handlers.onContent === 'function') handlers.onContent(text);
+    },
+    onToolCallDelta(delta) {
+      // 按 index 归并：同一个工具调用的 name/arguments 可能分多片到达
+      const i = delta.index ?? 0;
+      if (!collected.toolCalls[i]) {
+        collected.toolCalls[i] = { id: '', type: 'function', function: { name: '', arguments: '' } };
+      }
+      const slot = collected.toolCalls[i];
+      if (delta.id) slot.id = delta.id;
+      if (delta.type) slot.type = delta.type;
+      if (delta.function?.name) slot.function.name += delta.function.name;
+      if (delta.function?.arguments) slot.function.arguments += delta.function.arguments;
+      if (typeof handlers.onToolCall === 'function') handlers.onToolCall(delta);
+    },
+  };
+}
+
+function parseSseText(text, sink) {
+  text.split('\n').forEach((line) => handleSseLine(line.replace(/\r$/, ''), sink));
 }
 
 function handleSseLine(line, handlers) {
@@ -257,7 +306,37 @@ function handleSseLine(line, handlers) {
     if (typeof delta.content === 'string' && delta.content && typeof handlers.onContent === 'function') {
       handlers.onContent(delta.content);
     }
+    // 工具调用：可能一次给多个（并行调用），逐个转发
+    if (Array.isArray(delta.tool_calls) && typeof handlers.onToolCallDelta === 'function') {
+      for (const tc of delta.tool_calls) handlers.onToolCallDelta(tc);
+    }
   }
+}
+
+/**
+ * 把收集到的工具调用规整成可执行的形式。
+ * 参数是 JSON 字符串，解析失败时给出明确标记而不是抛错。
+ */
+export function normalizeToolCalls(collected) {
+  const list = Array.isArray(collected?.toolCalls) ? collected.toolCalls : [];
+  return list.filter(Boolean).map((tc, i) => {
+    let args = {};
+    let parseError = '';
+    const rawArgs = tc.function?.arguments || '';
+    if (rawArgs.trim()) {
+      try {
+        args = JSON.parse(rawArgs);
+      } catch {
+        parseError = '参数不是合法 JSON';
+      }
+    }
+    return {
+      id: tc.id || `call_${i}`,
+      name: tc.function?.name || '',
+      args,
+      parseError,
+    };
+  });
 }
 
 /* ── 组装请求消息 ─────────────────────────────────────── */

@@ -35,11 +35,30 @@ const BROWSERS = [
 
 /** 注入的原生桥桩：记录调用，供断言检查 */
 const BRIDGE_STUB = `
-window.__calls = { ttsSpeak: 0, ttsSpeakCloud: 0, sttStart: 0, cloudParams: null };
+window.__calls = { ttsSpeak: 0, ttsSpeakCloud: 0, sttStart: 0, cloudParams: null, tool: 0 };
 window.AndroidBridge = (() => {
   const calls = window.__calls;
   return {
     isNative: () => '1',
+
+    // Fairy 工具（供工具链断言使用）
+    callTool: (name, argsJson) => {
+      calls.tool += 1;
+      if (name === 'device_info') {
+        return JSON.stringify({ ok: true, data: { battery: { percent: 66 } } });
+      }
+      if (name === 'read_file') {
+        return JSON.stringify({ ok: true, text: '桩文件内容' });
+      }
+      if (name === 'write_file') {
+        return JSON.stringify({ ok: true, text: '已写入' });
+      }
+      return JSON.stringify({ ok: false, error: '桩未实现：' + name });
+    },
+    toolDocPath: () => '/stub/documents',
+    // 键值存储（长期记忆的落盘位置）
+    readStore: () => '',
+    writeStore: () => '1',
     // 合成
     ttsSpeak: () => { calls.ttsSpeak += 1; },
     ttsSpeakCloud: (text, params) => {
@@ -884,6 +903,58 @@ async function runChecks(ws) {
       })()
     `);
     await sleep(320);
+
+    /* ── 工具与记忆 ── */
+
+    const toolsUi = await evaluate(`
+      (() => ({
+        toolsToggle: !!document.querySelector('#set-tools-enabled'),
+        memoryToggle: !!document.querySelector('#set-memory-enabled'),
+        memoryBtn: !!document.querySelector('#btn-memory-manage'),
+        docBtn: !!document.querySelector('#btn-doc-path'),
+      }))()
+    `);
+    add('设置里有工具与记忆开关',
+      toolsUi.toolsToggle && toolsUi.memoryToggle && toolsUi.memoryBtn && toolsUi.docBtn,
+      '');
+
+    // 工具确实注册到了对话流程（有原生桥时应有 ≥6 个）
+    const toolCount = await evaluate(`window.__fairyTest?.toolCount ?? -1`);
+    add('工具已注册到对话流程',
+      typeof toolCount === 'number' && toolCount >= 6,
+      `${toolCount} 个工具`);
+
+    // 记忆面板可展开且能列出内容
+    const memPanel = await evaluate(`
+      (async () => {
+        await window.__fairyTest?.memory?.add?.('这是一条用于验证的记忆');
+        document.querySelector('#btn-memory-manage')?.click();
+        await new Promise(r => setTimeout(r, 200));
+        const panel = document.querySelector('#memory-panel');
+        const list = document.querySelector('#memory-list');
+        return {
+          open: panel && !panel.hidden,
+          hasText: (list?.textContent || '').includes('用于验证的记忆'),
+          rows: list?.querySelectorAll('.memory-row')?.length || 0,
+        };
+      })()
+    `);
+    add('记忆面板能展开并列出内容',
+      memPanel.open && memPanel.hasText && memPanel.rows >= 1,
+      `列出 ${memPanel.rows} 条`);
+
+    // 清理：把验证写入的记忆删掉，避免污染
+    await evaluate(`
+      (async () => {
+        const m = window.__fairyTest?.memory;
+        const items = m?.list?.() || [];
+        for (const it of items) {
+          if (it.content.includes('用于验证的记忆')) m.remove(it.id);
+        }
+        document.querySelector('#btn-memory-manage')?.click();
+      })()
+    `);
+    await sleep(200);
 
     /* ── 联网搜索 ── */
 

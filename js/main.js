@@ -34,6 +34,9 @@ import { initSearchUi } from './search-ui.js';
 import { createHddBackground } from './hdd-bg.js';
 import { createChime, CHIME_PRESETS } from './chime.js';
 import { prepareSpeechText, cleanForSpeech, rewriteForSpeech } from './speech-text.js';
+import { runWithTools } from './agent.js';
+import { createToolRunner, TOOL_DEFINITIONS } from './tools.js';
+import { createMemory } from './memory.js';
 
 const BUILD_VERSION = '0.1.0';
 
@@ -52,6 +55,10 @@ const state = {
   stt: null,
   listening: false,
   sleepTimer: null,
+  /** 长期记忆控制器 */
+  memory: null,
+  /** 工具执行器 */
+  toolRunner: null,
   /** 语音提示音播放器 */
   chime: null,
 };
@@ -394,6 +401,110 @@ function syncMascotToggle() {
   btn.setAttribute('aria-label', on ? '收起 Fairy 立绘' : '展开 Fairy 立绘');
 }
 
+/**
+ * 绑定「能力与记忆」设置。
+ *
+ * 长期记忆是用户的隐私数据，因此必须能查看与删除 ——
+ * 只提供"写入"而没有"查看/清除"的记忆功能是不可接受的。
+ */
+function initToolsUi() {
+  const toolsToggle = $('#set-tools-enabled');
+  const memToggle = $('#set-memory-enabled');
+  const memBtn = $('#btn-memory-manage');
+  const memPanel = $('#memory-panel');
+  const memList = $('#memory-list');
+  const memClear = $('#btn-memory-clear');
+  const docBtn = $('#btn-doc-path');
+  const hint = $('#tools-hint');
+
+  const s = state.settings;
+  if (toolsToggle) toolsToggle.checked = s.toolsEnabled !== false;
+  if (memToggle) memToggle.checked = s.memoryEnabled !== false;
+
+  function syncHint() {
+    if (!hint) return;
+    const tools = state.settings.toolsEnabled !== false;
+    const mem = state.settings.memoryEnabled !== false;
+    const native = typeof window !== 'undefined'
+      && typeof window.AndroidBridge?.callTool === 'function';
+    const parts = [];
+    parts.push(tools
+      ? (native ? `工具已启用（共 ${TOOL_DEFINITIONS.length} 个）` : '工具已启用，但当前环境不支持（需 Android 版）')
+      : '工具已关闭：Fairy 无法读取设备状态或文件');
+    parts.push(mem
+      ? `长期记忆已启用（现有 ${state.memory?.count?.() ?? 0} 条）`
+      : '长期记忆已关闭：不会记录也不会注入');
+    hint.textContent = parts.join('；') + '。';
+  }
+
+  toolsToggle?.addEventListener('change', (e) => {
+    saveSettings({ toolsEnabled: e.target.checked });
+    syncHint();
+  });
+
+  memToggle?.addEventListener('change', (e) => {
+    saveSettings({ memoryEnabled: e.target.checked });
+    syncHint();
+  });
+
+  /** 渲染记忆列表 */
+  function renderMemory() {
+    if (!memList) return;
+    const items = state.memory?.list?.() || [];
+    if (!items.length) {
+      memList.textContent = '还没有任何记忆。跟 Fairy 说「记住……」即可添加。';
+      return;
+    }
+    memList.innerHTML = '';
+    for (const m of items) {
+      const row = document.createElement('div');
+      row.className = 'memory-row';
+
+      const text = document.createElement('span');
+      text.className = 'memory-text';
+      text.textContent = m.content;
+
+      const del = document.createElement('button');
+      del.className = 'mini-btn';
+      del.type = 'button';
+      del.textContent = '删除';
+      del.addEventListener('click', () => {
+        state.memory?.remove?.(m.id);
+        renderMemory();
+        syncHint();
+        toast('已删除该条记忆。');
+      });
+
+      row.append(text, del);
+      memList.append(row);
+    }
+  }
+
+  memBtn?.addEventListener('click', () => {
+    if (!memPanel) return;
+    memPanel.hidden = !memPanel.hidden;
+    if (!memPanel.hidden) renderMemory();
+  });
+
+  memClear?.addEventListener('click', async () => {
+    const n = state.memory?.count?.() ?? 0;
+    if (!n) { toast('当前没有记忆。'); return; }
+    const yes = await confirmDialog(`确定清空全部 ${n} 条长期记忆？此操作不可撤销。`);
+    if (!yes) return;
+    state.memory?.clear?.();
+    renderMemory();
+    syncHint();
+    toast('长期记忆已清空。');
+  });
+
+  docBtn?.addEventListener('click', () => {
+    const path = window.AndroidBridge?.toolDocPath?.() || '';
+    toast(path ? `文档区：${path}` : '文档区位置需在 Android 版查看。');
+  });
+
+  syncHint();
+}
+
 function applyTheme() {
   const pref = state.settings.theme;
   const dark = pref === 'dark'
@@ -510,6 +621,44 @@ function bindMascotInteraction() {
     wake();
     toggleMascotMenu();
   });
+}
+
+/**
+ * 把工具调用翻译成给用户看的一句话。
+ *
+ * 目的：让用户知道 Fairy 在做什么（"正在读取 notes/todo.md"），
+ * 而不是对着静止的界面等 —— 尤其是文件操作会花时间。
+ */
+function describeToolCall(name, args) {
+  switch (name) {
+    case 'device_info': return '正在读取设备状态';
+    case 'list_files':  return `正在查看文件${args?.path ? ` ${args.path}` : ''}`;
+    case 'read_file':   return `正在读取 ${args?.path || '文件'}`;
+    case 'write_file':  return `正在写入 ${args?.path || '文件'}`;
+    case 'delete_file': return `正在删除 ${args?.path || '文件'}`;
+    case 'remember':    return '正在记入长期记忆';
+    case 'recall':      return '正在检索长期记忆';
+    default:            return `正在调用 ${name}`;
+  }
+}
+
+/**
+ * 把长期记忆拼接进 system prompt。
+ *
+ * 记忆放在系统提示里而不是当成历史消息：它是背景信息，
+ * 不该被模型当成"用户刚说过的话"来回应。
+ */
+function withMemory(systemPrompt) {
+  try {
+    // 尊重开关：关掉后不注入，等于 Fairy 不记得任何事
+    if (state.settings.memoryEnabled === false) return systemPrompt;
+    const block = state.memory?.buildPromptBlock?.() || '';
+    if (!block) return systemPrompt;
+    return `${systemPrompt}\n\n${block}`;
+  } catch (err) {
+    console.warn('[fairy] 注入长期记忆失败', err);
+    return systemPrompt;
+  }
 }
 
 /* ── 开场动画 ─────────────────────────────────────────── */
@@ -1315,7 +1464,9 @@ async function runCompletion(seq) {
   });
 
   const historyForRequest = state.messages;
-  const systemPrompt = buildSystemPrompt(settings);
+  const systemPromptBase = buildSystemPrompt(settings);
+  // 注入长期记忆：让 Fairy 记得住跨对话的内容
+  const systemPrompt = withMemory(systemPromptBase);
   let messages = buildRequestMessages(systemPrompt, historyForRequest);
 
   // ── 联网搜索（可选）
@@ -1346,22 +1497,47 @@ async function runCompletion(seq) {
   }
 
   try {
-    await streamChat({
-      apiKey: settings.apiKey,
-      baseUrl: settings.baseUrl,
-      model: settings.model,
-      messages,
-      temperature: Number(settings.temperature),
-      maxTokens: Number(settings.maxTokens),
-    }, {
-      onReasoning: (t) => { reasoning += t; paint(); },
-      onContent: (t) => {
-        if (!content && reasoning) setMascotState('speaking');
-        content += t;
-        paint();
+    /*
+      带工具的对话循环。
+
+      模型可以调用工具（文件 / 设备信息 / 长期记忆），宿主执行后把结果
+      回传，模型据此继续 —— 直到它给出最终答复。
+      没有原生桥或未开启工具时，runWithTools 会自动退化为单轮请求。
+
+      工具活动的提示语显示在状态栏：用户能看见 Fairy 正在做什么，
+      而不是对着一个静止的界面等待。
+    */
+    const result = await runWithTools({
+      params: {
+        apiKey: settings.apiKey,
+        baseUrl: settings.baseUrl,
+        model: settings.model,
+        temperature: Number(settings.temperature),
+        maxTokens: Number(settings.maxTokens),
       },
-      onUsage: (u) => { usage = u; },
-    }, controller.signal);
+      messages,
+      runner: state.toolRunner,
+      signal: controller.signal,
+      handlers: {
+        onReasoning: (t) => { reasoning += t; paint(); },
+        onContent: (t) => {
+          if (!content && reasoning) setMascotState('speaking');
+          content += t;
+          paint();
+        },
+        onUsage: (u) => { usage = u; },
+        onToolActivity: (ev) => {
+          // 只显示提示，不写进正文 —— 工具过程不属于回答内容
+          if (ev.type === 'call') setStatus(`${describeToolCall(ev.name, ev.args)}…`);
+          else if (ev.type === 'result') setStatus(ev.ok ? '' : '工具调用未成功。');
+        },
+      },
+    }, streamChat);
+
+    // 达到轮数上限时提示一下，避免用户以为回答被截断
+    if (result?.stopped === 'max-rounds') {
+      setStatus('工具调用轮数已达上限，已要求直接作答。');
+    }
 
     if (controller.signal.aborted) {
       setStatus('已停止生成。');
@@ -1989,6 +2165,20 @@ async function boot() {
   bindMascotInteraction();
   updateComposerState();
 
+  // ── 长期记忆与工具 ──
+  //
+  // 记忆存本机（App 私有目录），工具由原生层执行。
+  // 两者都在对话前初始化好，避免首次使用时才建造成额外的等待。
+  try {
+    state.memory = createMemory();
+    state.toolRunner = createToolRunner({
+      getSettings: () => state.settings,
+      memory: state.memory,
+    });
+  } catch (err) {
+    console.warn('[fairy] 记忆/工具初始化失败', err);
+  }
+
   // 开场动画：与后续初始化并行，只是一个覆盖层，不阻塞启动
   try { initSplash(); } catch (err) { console.warn('[fairy] 开场动画失败', err); }
 
@@ -2041,6 +2231,9 @@ async function boot() {
 
   // 朗读改写设置
   initSpeechSimplifyUi();
+
+  // 能力与记忆设置
+  initToolsUi();
 
   // 启动时把云识别凭据推给原生（原生侧不持久化，每次启动都要推）
   try {
@@ -2103,6 +2296,18 @@ window.__fairyTest = {
   },
   describeSpeechState,
   describeCloudState,
+
+  /** 直接执行一个工具（供 verify-tools 验证工具链） */
+  runTool(name, args) {
+    if (!state.toolRunner) return Promise.resolve({ ok: false, error: '工具未初始化' });
+    return state.toolRunner.run(name, args || {});
+  },
+  /** 暴露记忆控制器，便于验证写入/检索/注入 */
+  get memory() { return state.memory; },
+  /** 暴露工具定义数量，确认工具确实注册了 */
+  get toolCount() {
+    return state.toolRunner && state.toolRunner.hasNative() ? TOOL_DEFINITIONS.length : 0;
+  },
 };
 
 boot();

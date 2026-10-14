@@ -779,6 +779,59 @@ public class MainActivity extends Activity {
             return "1";
         }
 
+        /* ── Fairy 工具（文件 / 设备信息）──────────────────
+         *
+         * 统一入口，具体实现在 ToolHost 里。这样做的原因：
+         *   - 权限边界集中在一处，便于审查
+         *   - 新增工具只需改 ToolHost，不必动桥接
+         *
+         * 返回值为 JSON 字符串；失败也是一段带 ok:false 的 JSON，
+         * 不抛异常 —— 工具失败要能被模型看到并自行调整。
+         */
+
+        @JavascriptInterface
+        public String callTool(String name, String argsJson) {
+            try {
+                return ToolHost.call(MainActivity.this, name, argsJson);
+            } catch (Throwable e) {
+                return "{\"ok\":false,\"error\":\"" + e.getClass().getSimpleName() + "\"}";
+            }
+        }
+
+        /** 文档区绝对路径（设置界面里展示给用户，便于去文件管理器查看） */
+        @JavascriptInterface
+        public String toolDocPath() {
+            try {
+                return ToolHost.docPath(MainActivity.this);
+            } catch (Throwable e) {
+                return "";
+            }
+        }
+
+        /* ── 键值存储（长期记忆的落盘位置）────────────────
+         *
+         * 存放在应用私有目录，不经过网络。
+         * readStore 未命中返回空字符串；writeStore 成功返回 "1"。
+         */
+
+        @JavascriptInterface
+        public String readStore(String key) {
+            try {
+                return ToolHost.readStore(MainActivity.this, key);
+            } catch (Throwable e) {
+                return "";
+            }
+        }
+
+        @JavascriptInterface
+        public String writeStore(String key, String value) {
+            try {
+                return ToolHost.writeStore(MainActivity.this, key, value);
+            } catch (Throwable e) {
+                return "写入失败：" + e.getMessage();
+            }
+        }
+
         /* ── 合成方式切换 ── */
 
         /** 'cloud' 优先云 TTS，'system' 优先系统引擎 */
