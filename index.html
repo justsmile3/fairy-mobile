@@ -191,25 +191,29 @@
         <input id="set-auto-read" type="checkbox">
       </label>
 
-      <!-- ── 朗读文本改写 ── -->
+      <!-- ── 朗读文本处理 ── -->
       <label class="field switch">
-        <span>朗读前改写为口语稿</span>
+        <span>朗读前处理长回复</span>
         <input id="set-speech-simplify" type="checkbox">
       </label>
       <label class="field switch">
-        <span>用 API 进一步口语化</span>
+        <span>用 API 总结成 1–3 句</span>
         <input id="set-speech-rewrite" type="checkbox">
       </label>
+      <label class="field range">
+        <span>超过多少字才总结 <output id="out-speech-min">120</output></span>
+        <input id="set-speech-min" type="range" min="40" max="400" step="20" value="120">
+      </label>
       <label class="field">
-        <span>改写用的模型</span>
+        <span>总结用的模型</span>
         <select id="set-speech-model"></select>
       </label>
       <p id="speech-simplify-hint" class="field-note">
-        屏幕上的回复<b>不会被改动</b>，只有朗读时使用改写后的稿子。
-        开启 API 改写会额外消耗少量 token（用便宜快速的模型即可）。
+        长回复朗读时只说要点。<b>屏幕上的回复不会被改动</b>，
+        存进会话的也是原文。开启 API 总结会额外消耗少量 token。
       </p>
       <div class="row">
-        <button id="btn-speech-preview" class="mini-btn" type="button">预览改写效果</button>
+        <button id="btn-speech-preview" class="mini-btn" type="button">预览处理效果</button>
       </div>
       <div id="speech-preview" class="diag-box" hidden></div>
 

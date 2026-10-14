@@ -551,9 +551,20 @@ async function runChecks(ws) {
         previewBox: !!document.querySelector('#speech-preview'),
       }))()
     `);
-    add('设置里有朗读改写选项与预览入口',
+    add('设置里有朗读处理选项与预览入口',
       simplifyUi.simplify && simplifyUi.rewrite && simplifyUi.previewBtn && simplifyUi.model >= 2,
       `模型选项 ${simplifyUi.model} 个`);
+
+    // 总结阈值控件（超过多少字才总结）
+    const minCtl = await evaluate(`
+      (() => {
+        const r = document.querySelector('#set-speech-min');
+        return { exists: !!r, val: r?.value || '', min: r?.min || '', max: r?.max || '' };
+      })()
+    `);
+    add('有总结触发字数阈值',
+      minCtl.exists && Number(minCtl.val) > 0,
+      `默认 ${minCtl.val} 字（范围 ${minCtl.min}–${minCtl.max}）`);
 
     // 本地清洗必须真的能去掉 Markdown（这是每次朗读都会走的路径）
     const cleaned = await evaluate(`

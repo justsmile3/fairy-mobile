@@ -202,16 +202,18 @@ function initAppearanceUi() {
 }
 
 /**
- * 绑定「朗读改写」设置。
+ * 绑定「朗读前处理」设置。
  *
- * 这里提供一个「预览改写效果」按钮：拿一段带 Markdown 的样例文本，
- * 同时展示本地清洗与 API 改写的结果。
- * 有这个才能判断改写是否合意 —— 否则只能靠听，很难对比。
+ * 这里提供「预览处理效果」按钮：拿一段带 Markdown 的长样例，
+ * 同时展示原文、本地清洗结果与 API 总结结果。
+ * 有这个才能判断总结是否合意 —— 只靠听很难对比。
  */
 function initSpeechSimplifyUi() {
   const simplifyToggle = $('#set-speech-simplify');
   const rewriteToggle = $('#set-speech-rewrite');
   const modelSel = $('#set-speech-model');
+  const minRange = $('#set-speech-min');
+  const minOut = $('#out-speech-min');
   const previewBtn = $('#btn-speech-preview');
   const previewBox = $('#speech-preview');
   const hintNode = $('#speech-simplify-hint');
@@ -224,34 +226,42 @@ function initSpeechSimplifyUi() {
 
   const s = state.settings;
   if (simplifyToggle) simplifyToggle.checked = s.speechSimplify !== false;
-  if (rewriteToggle) rewriteToggle.checked = s.speechRewrite !== false;
+  if (rewriteToggle) rewriteToggle.checked = s.speechSummarize !== false;
   if (modelSel) modelSel.value = s.speechModel || 'deepseek-flash';
+  if (minRange) minRange.value = String(s.speechSummarizeMin ?? 120);
+  if (minOut) minOut.textContent = String(s.speechSummarizeMin ?? 120);
 
   function syncHint() {
     if (!hintNode) return;
     const on = state.settings.speechSimplify !== false;
-    const api = on && state.settings.speechRewrite !== false;
+    const summarize = on && state.settings.speechSummarize !== false;
     if (!on) {
       hintNode.textContent = '已关闭。朗读会直接念原文，Markdown 标记也会被念出来。';
       hintNode.className = 'field-note warn';
       return;
     }
     hintNode.className = 'field-note';
-    hintNode.textContent = api
-      ? `已开启：先本地清洗去除 Markdown，再用 ${state.settings.speechModel || 'deepseek-flash'} 改写为口语稿。屏幕上的回复不会被改动。`
-      : '已开启本地清洗（去 Markdown、表格转叙述、代码块转说明），不调用 API，零额外开销。';
+    hintNode.textContent = summarize
+      ? `已开启：超过 ${state.settings.speechSummarizeMin ?? 120} 字的回复，`
+        + `朗读时会用 ${state.settings.speechModel || 'deepseek-flash'} 总结成 1–3 句。`
+        + '屏幕上的回复与存库内容都不会被改动。'
+      : '已开启本地清洗（去 Markdown、表格转叙述、代码块转说明），'
+        + '但长回复会完整念出，不调用 API。';
   }
 
   simplifyToggle?.addEventListener('change', (e) => {
     saveSettings({ speechSimplify: e.target.checked });
-    if (rewriteToggle) rewriteToggle.disabled = !e.target.checked;
-    if (modelSel) modelSel.disabled = !e.target.checked;
+    const off = !e.target.checked;
+    if (rewriteToggle) rewriteToggle.disabled = off;
+    if (modelSel) modelSel.disabled = off;
+    if (minRange) minRange.disabled = off;
     syncHint();
   });
 
   rewriteToggle?.addEventListener('change', (e) => {
-    saveSettings({ speechRewrite: e.target.checked });
+    saveSettings({ speechSummarize: e.target.checked });
     if (modelSel) modelSel.disabled = !e.target.checked;
+    if (minRange) minRange.disabled = !e.target.checked;
     syncHint();
   });
 
@@ -260,26 +270,49 @@ function initSpeechSimplifyUi() {
     syncHint();
   });
 
-  if (rewriteToggle) rewriteToggle.disabled = s.speechSimplify === false;
-  if (modelSel) modelSel.disabled = s.speechSimplify === false || s.speechRewrite === false;
+  minRange?.addEventListener('input', (e) => {
+    if (minOut) minOut.textContent = e.target.value;
+  });
+  minRange?.addEventListener('change', (e) => {
+    saveSettings({ speechSummarizeMin: Number(e.target.value) });
+    syncHint();
+  });
+
+  const simplifyOff = s.speechSimplify === false;
+  const summarizeOff = simplifyOff || s.speechSummarize === false;
+  if (rewriteToggle) rewriteToggle.disabled = simplifyOff;
+  if (modelSel) modelSel.disabled = summarizeOff;
+  if (minRange) minRange.disabled = summarizeOff;
   syncHint();
 
-  /* ── 预览改写效果 ── */
+  /* ── 预览处理效果 ── */
+  // 样例刻意做得较长（超过默认阈值），才能体现总结的效果。
   const SAMPLE = [
     '## 部署步骤',
     '',
-    '运行下面的命令即可：',
+    '这个项目的部署分为几个阶段，下面逐一说明。首先需要准备好运行环境，',
+    '确认 Node 版本不低于 18，并且磁盘剩余空间足够。然后运行下面的命令：',
     '',
     '```bash',
     'npm install && npm run build',
     '```',
     '',
+    '安装过程会下载依赖并执行构建，通常需要几分钟。构建完成后，',
+    '可以通过以下参数调整启动行为：',
+    '',
     '| 参数 | 说明 |',
     '| --- | --- |',
-    '| `--port` | 指定端口 |',
-    '| `--host` | 监听地址 |',
+    '| `--port` | 指定监听端口，默认 3000 |',
+    '| `--host` | 指定监听地址，默认本机 |',
+    '| `--verbose` | 输出详细日志，排查问题时使用 |',
     '',
-    '详见 [官方文档](https://example.com/docs/getting-started)。',
+    '### 常见问题',
+    '',
+    '如果安装失败，先检查网络与镜像源配置。若构建报错，',
+    '多半是 Node 版本不符或依赖版本冲突，可以删除 node_modules 后重试。',
+    '启动后无法访问，通常是端口被占用或防火墙拦截。',
+    '',
+    '更多细节请参考 [官方文档](https://example.com/docs/getting-started)。',
   ].join('\n');
 
   previewBtn?.addEventListener('click', async () => {
@@ -290,30 +323,33 @@ function initSpeechSimplifyUi() {
 
     try {
       const local = cleanForSpeech(SAMPLE);
+      const min = Number(state.settings.speechSummarizeMin) || 120;
       let apiText = '';
       let apiNote = '';
 
-      if (state.settings.speechRewrite !== false && state.settings.apiKey) {
+      if (state.settings.speechSummarize === false) {
+        apiNote = 'API 总结已关闭';
+      } else if (!state.settings.apiKey) {
+        apiNote = '未配置 API Key，跳过 API 总结';
+      } else if (local.length < min) {
+        apiNote = `本地清洗后仅 ${local.length} 字，未达总结阈值（${min} 字）`;
+      } else {
         const r = await rewriteForSpeech(local, state.settings, { completeOnce });
         if (r.ok) apiText = r.text;
-        else apiNote = r.error || '改写失败';
-      } else if (!state.settings.apiKey) {
-        apiNote = '未配置 API Key，跳过 API 改写';
-      } else {
-        apiNote = 'API 改写已关闭';
+        else apiNote = r.error || '总结失败';
       }
 
       const parts = [
-        '【原文（屏幕上显示的，不会被改动）】',
+        `【原文】共 ${SAMPLE.length} 字（屏幕上显示的，不会被改动）`,
         SAMPLE,
         '',
-        '【本地清洗后（朗读用）】',
+        `【本地清洗后】共 ${local.length} 字（去掉 Markdown，仍会完整念出）`,
         local,
       ];
       if (apiText) {
-        parts.push('', '【API 口语化后（朗读用）】', apiText);
+        parts.push('', `【API 总结后】共 ${apiText.length} 字（朗读时实际念这段）`, apiText);
       } else if (apiNote) {
-        parts.push('', `【API 改写】${apiNote}`);
+        parts.push('', '【API 总结】' + apiNote, '朗读时会完整念出本地清洗后的内容。');
       }
       previewBox.textContent = parts.join('\n');
     } catch (err) {

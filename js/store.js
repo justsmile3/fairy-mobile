@@ -88,12 +88,15 @@ export const DEFAULT_SETTINGS = Object.freeze({
   chimePreset: 'terminal',
   chimeVolume: 0.7,
 
-  // ── 朗读文本改写 ────────────────────────────────────
-  // 朗读前把 Markdown 转成口语稿。**只影响朗读**，
+  // ── 朗读文本处理 ────────────────────────────────────
+  // 长回复朗读时总结成 1–3 句。**只影响朗读**，
   // 屏幕上显示与存进数据库的始终是原文。
-  speechSimplify: true,        // 是否启用改写（本地清洗 + API 口语化）
-  speechRewrite: true,         // 是否调用 API 进一步口语化（关掉则只做本地清洗）
-  // 改写固定用便宜快速的 flash：这是简单任务，
+  speechSimplify: true,        // 是否启用朗读前处理（本地清洗 + 总结）
+  // 是否调用 API 总结成短句。关掉则只做本地清洗（念全文，但已去 Markdown）
+  speechSummarize: true,
+  // 超过多少字才总结。太短的内容（如"好的"）总结反而奇怪。
+  speechSummarizeMin: 120,
+  // 总结固定用便宜快速的 flash：这是简单任务，
   // 用 v4-pro 做性价比很低，因此不跟随对话模型。
   speechModel: 'deepseek-flash',
 

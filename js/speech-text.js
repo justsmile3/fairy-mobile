@@ -107,21 +107,27 @@ export function cleanForSpeech(markdown) {
 
 /* ── 二、调用 API 口语化改写 ─────────────────────────── */
 
-/** 改写用的提示词。要点：只改写、不加内容、保持简洁。 */
-const REWRITE_SYSTEM = `你是一个语音朗读稿改写助手。把用户给你的文本改写成**适合朗读**的口语稿。
+/** 总结用的提示词。要点：极短、只讲结论、不加评论。 */
+const REWRITE_SYSTEM = `你是一个语音播报稿总结助手。把用户给你的文本压缩成**极短的口头摘要**。
 
-要求：
-1. 只做改写，**不要增加原文没有的信息**，也不要发表评论或总结。
-2. 去掉所有 Markdown 痕迹（如 #、**、\`、|、链接地址）。
-3. 长句拆成短句；书面语换成口语；数字与英文缩写按中文习惯读法写。
-4. 代码或公式用一句自然的话描述它在做什么，不要逐字符照抄。
-5. 保持原意与语气，不要抒情、不要加开场白或结束语。
-6. 直接输出改写后的正文，不要任何前后缀、不要解释你在做什么。
+硬性要求：
+1. **只输出 1 到 3 句话**。这是最重要的要求 —— 宁可少说，不要多说。
+   内容多的时候，只保留最核心的结论，细节全部舍弃。
+2. 只讲结论与关键动作，**不要**列举、铺垫、举例、解释原因。
+3. 不要任何开场白与结束语（如"好的"、"总结一下"、"希望有帮助"）。
+4. 不要 Markdown 标记、代码、链接、表格。
+5. 用适合念出来的短句，书面语可以，不必刻意口语化。
+6. 保持原意，不要添加原文没有的信息，也不要发表评价。
 
-如果原文已经适合朗读，原样返回即可。`;
+示例：
+输入：一份 800 字的部署文档，讲了三步安装、两种配置方式、五个常见问题。
+输出：部署分三步：装依赖、改配置、启动服务。常见问题里最容易踩的是端口占用。
+
+输入：一段解释闭包的代码说明，含示例代码与三条注意事项。
+输出：闭包就是函数记住了定义时的外部变量，可以在这个变量生命周期之外继续访问它。`;
 
 /**
- * 调 API 把文本改写成更适合朗读的口语稿。
+ * 调 API 把文本总结成极短的口头摘要。
  *
  * @returns {Promise<{ok:boolean, text:string, error?:string}>}
  *   ok=false 时 text 为空，调用方应回退到本地清洗结果。
@@ -137,8 +143,14 @@ export async function rewriteForSpeech(text, settings, deps = {}) {
     return { ok: false, text: '', error: '未配置 API Key' };
   }
 
-  // 超长内容截断：改写是"为了好听"，不是"必须完整"，
-  // 为一段几千字的内容花掉大量 token 并不划算。
+  // 短内容不值得总结：一句"好的，我这就去做"总结完反而更奇怪。
+  // 阈值按字符数粗略判断，中文大致对应字数。
+  const minChars = Number(settings.speechSummarizeMin) || 120;
+  if (source.length < minChars) {
+    return { ok: false, text: '', error: `内容较短（${source.length} 字），跳过总结` };
+  }
+
+  // 超长内容截断：总结本来就是为了简短，不需要喂完整篇。
   const input = source.length > MAX_INPUT
     ? `${source.slice(0, MAX_INPUT)}…（后续内容略）`
     : source;
@@ -147,23 +159,82 @@ export async function rewriteForSpeech(text, settings, deps = {}) {
     const out = await completeOnce({
       apiKey: settings.apiKey,
       baseUrl: settings.baseUrl,
-      // 改写是简单任务，固定用便宜快速的 flash，不跟随对话模型 ——
+      // 总结是简单任务，固定用便宜快速的 flash，不跟随对话模型 ——
       // 用 v4-pro 做这件事性价比很低。
       model: settings.speechModel || 'deepseek-flash',
       messages: [
         { role: 'system', content: REWRITE_SYSTEM },
         { role: 'user', content: input },
       ],
-      temperature: 0.3,
-      maxTokens: 1500,
+      temperature: 0.2,
+      maxTokens: 300,
     }, deps.signal);
 
-    const cleaned = String(out || '').trim();
-    if (!cleaned) return { ok: false, text: '', error: '改写结果为空' };
+    let cleaned = String(out || '').trim();
+    if (!cleaned) return { ok: false, text: '', error: '总结结果为空' };
+
+    // 兜底：模型偶尔不听话，返回一大段。这里硬性截断到 3 句，
+    // 确保"朗读时只听到一两句"这个体验是可靠的。
+    cleaned = clampSentences(cleaned, 3);
     return { ok: true, text: cleaned };
   } catch (err) {
     return { ok: false, text: '', error: err?.message || String(err) };
   }
+}
+
+/**
+ * 把文本限制在最多 N 句。
+ *
+ * 为什么需要：提示词只能"请求"模型简短，不能保证。
+ * 朗读场景下必须硬性保证长度，否则一条长回复会被念很久。
+ *
+ * 处理三种情况：
+ *   1. 中英文句末标点正常切分
+ *   2. 英文句点：需排除 "3.14"、"Node.js"、"v1.2" 这类非句末的点
+ *   3. 完全没有标点的长文本：按字数硬截断，否则限制形同虚设
+ */
+export function clampSentences(text, maxSentences = 3) {
+  const s = String(text || '').trim();
+  if (!s) return '';
+
+  /*
+    句末标点的判定：
+
+    中文标点（。！？；）直接切。
+
+    英文句点要区分两种情况：
+      - "Node.js v1.2.3"、"3.14" 里的点是词内点，不是句末
+      - "First one. Second one." 里的点确实是句末
+
+    区分依据：**句末点的后面必然是空白或结尾**，而且下一句通常以
+    大写字母开头。词内点后面紧跟字母或数字，不会跟空格。
+    因此规则是：点 + (空格后接大写字母 | 结尾)。
+    这样 "v1.2.3 已发布" 不会被误切（点后是数字），
+    "one. Second" 会被正确切分。
+  */
+  const splitter = /(?<=[。！？；!?;])|(?<=\.)(?=\s+[A-Z“"'(]|\s*$)/;
+  const parts = s.split(splitter).map((p) => p.trim()).filter(Boolean);
+
+  if (parts.length > maxSentences) {
+    // 重新拼接时按语言决定是否补空格：
+    //   以英文句点结尾 → 补一个空格（英文句后需要空格）
+    //   以中文标点结尾 → 不加（中文里加空格会打乱朗读节奏）
+    const kept = parts.slice(0, maxSentences);
+    let out = '';
+    for (const p of kept) {
+      out += p;
+      if (/\.$/.test(p)) out += ' ';
+    }
+    return out.trim();
+  }
+
+  // 没有标点可切（例如模型输出了连续长句）：按字数硬截断。
+  // 单句超过 90 字时截到 90 字，保证不会被念很久。
+  if (parts.length === 1 && parts[0].length > 90) {
+    return parts[0].slice(0, 90) + '…';
+  }
+
+  return s;
 }
 
 /* ── 三、统一入口 ─────────────────────────────────────── */
@@ -172,10 +243,16 @@ export async function rewriteForSpeech(text, settings, deps = {}) {
  * 准备朗读文本。
  *
  * 流程：
- *   1. 本地清洗（永远执行，作为保底）
- *   2. 若开启 API 改写且配置齐全，再调 API 进一步口语化
+ *   1. 本地清洗（去 Markdown，永远执行）
+ *   2. 若开启总结且配置齐全，调 API 压缩成 1–3 句
  *
- * 任何一步失败都不会抛错 —— 朗读是主流程，不能因为改写失败就哑掉。
+ * 关于失败时的回退策略（重要）：
+ *   长内容总结失败时，**不再回退到念全文** —— 那会把一段 800 字的回复
+ *   完整念出来，正是要避免的。此时改为念一句提示，让用户知道内容较长、
+ *   建议看屏幕。
+ *   短内容本来就该完整念，不受影响。
+ *
+ * 任何情况都不抛错：朗读是主流程，不能因为总结失败就哑掉。
  *
  * @returns {Promise<{text:string, usedApi:boolean, note:string}>}
  */
@@ -183,7 +260,13 @@ export async function prepareSpeechText(raw, settings, deps = {}) {
   const local = cleanForSpeech(raw);
   const base = local || String(raw || '').trim();
 
-  if (settings.speechRewrite === false) {
+  if (settings.speechSimplify === false) {
+    return { text: base, usedApi: false, note: '' };
+  }
+
+  // 本地清洗后仍然较短：直接念，没必要总结
+  const minChars = Number(settings.speechSummarizeMin) || 120;
+  if (base.length < minChars) {
     return { text: base, usedApi: false, note: '' };
   }
 
@@ -191,6 +274,12 @@ export async function prepareSpeechText(raw, settings, deps = {}) {
   if (result.ok) {
     return { text: result.text, usedApi: true, note: '' };
   }
-  // 改写失败不是错误：本地清洗的结果同样能念，只是不够口语化
-  return { text: base, usedApi: false, note: result.error || '' };
+
+  // 总结失败，且内容确实很长：给一句提示，而不是把长文念完
+  const fallback = '这段回复比较长，我在这里简单说明：内容已显示在屏幕上，建议直接查看。';
+  return {
+    text: fallback,
+    usedApi: false,
+    note: result.error || '总结失败',
+  };
 }
