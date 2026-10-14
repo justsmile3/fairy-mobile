@@ -58,6 +58,46 @@ function findSdkDir() {
   return null;
 }
 
+/**
+ * 确保 debug 签名密钥存在。
+ *
+ * 密钥**不入版本库**（签名素材不应该进公开仓库，哪怕 debug 密钥的密码是公开的）：
+ * 缺失时用 keytool 现生成一个，等价于 Android 工具链的标准 debug keystore。
+ * 这样仓库保持干净，别人 clone 下来也能直接构建。
+ */
+function ensureKeystore(javaHome) {
+  const ksDir = path.join(ANDROID_DIR, 'keystore');
+  const ks = path.join(ksDir, 'debug.keystore');
+  if (exists(ks)) return ks;
+
+  const keytool = firstExisting(
+    path.join(javaHome, 'bin', 'keytool.exe'),
+    path.join(javaHome, 'bin', 'keytool'),
+  );
+  if (!keytool) {
+    fail('缺少签名密钥且找不到 keytool；请安装完整 JDK 后重试');
+  }
+
+  fs.mkdirSync(ksDir, { recursive: true });
+  log('未找到签名密钥，正在生成 debug keystore…');
+  const r = spawnSync(keytool, [
+    '-genkeypair',
+    '-keystore', ks,
+    '-storetype', 'PKCS12',
+    '-alias', 'androiddebugkey',
+    '-keyalg', 'RSA',
+    '-keysize', '2048',
+    '-validity', '10000',
+    '-storepass', 'android',
+    '-keypass', 'android',
+    '-dname', 'CN=Android Debug,O=Android,C=US',
+  ], { stdio: 'inherit' });
+
+  if (r.status !== 0 || !exists(ks)) fail('生成 debug keystore 失败');
+  log('已生成 debug keystore（别名 androiddebugkey，密码 android）');
+  return ks;
+}
+
 async function main() {
   const javaHome = findJavaHome();
   if (!javaHome) fail('找不到 JDK 17');
@@ -65,6 +105,8 @@ async function main() {
   if (!gradle) fail('找不到 Gradle');
   const sdkDir = findSdkDir();
   if (!sdkDir) fail('找不到 Android SDK');
+
+  ensureKeystore(javaHome);
 
   // 1. 打包前端（bundle.mjs 内部会把 www 同步到 assets）
   log('打包前端…');

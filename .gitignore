@@ -8,6 +8,15 @@ android/app/build/
 android/.gradle-tmp/
 android/local.properties
 
+# 签名密钥
+#
+# 签名素材不应进入版本库（哪怕 debug 密钥的密码是公开的）。
+# tools/build-apk.mjs 会在缺失时用 keytool 自动生成一份等价的 debug keystore，
+# 因此仓库里不需要保存它。
+android/keystore/
+*.keystore
+*.jks
+
 # 打包输出
 dist/
 
