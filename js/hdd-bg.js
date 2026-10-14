@@ -75,6 +75,23 @@ export function createHddBackground(canvas, options = {}) {
   let alive = true;
   /** 扫描线的相位，让它缓慢下移 */
   let scanPhase = 0;
+  /** 用户可调的网格密度与亮度 */
+  let density = 1;
+  let brightness = 1;
+
+  /** 设置网格密度（0.5–2）：大于 1 更密，小于 1 更疏 */
+  function setDensity(v) {
+    const n = Number(v);
+    density = Number.isFinite(n) && n > 0 ? Math.max(0.4, Math.min(2.2, n)) : 1;
+    draw();
+  }
+
+  /** 设置整体亮度（0.3–1.6）：影响网格线与刻度的不透明度 */
+  function setBrightness(v) {
+    const n = Number(v);
+    brightness = Number.isFinite(n) && n > 0 ? Math.max(0.2, Math.min(1.8, n)) : 1;
+    draw();
+  }
 
   /* ── 尺寸 ─────────────────────────────────────────── */
 
@@ -147,10 +164,12 @@ export function createHddBackground(canvas, options = {}) {
   }
 
   function drawGridLayer(layer, p) {
-    const spacing = layer.spacing;
+    // density 只影响间距（越小越密）；brightness 只影响透明度。
+    // 两者分开，用户就能"只调亮度不改变结构"。
+    const spacing = Math.max(12, layer.spacing / density);
     const ox = smoothX * layer.speed;
     const oy = smoothY * layer.speed;
-    const boost = p.gridBoost;
+    const boost = p.gridBoost * brightness;
 
     // 起点对齐到网格，避免拖动时出现半格
     const startX = -((ox % spacing) + spacing) % spacing;
@@ -315,5 +334,5 @@ export function createHddBackground(canvas, options = {}) {
   window.addEventListener('resize', onResize);
   window.addEventListener('orientationchange', onResize);
 
-  return { setParallax, setTheme, resize, start, stop, destroy };
+  return { setParallax, setTheme, setDensity, setBrightness, resize, start, stop, destroy };
 }

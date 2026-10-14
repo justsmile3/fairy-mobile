@@ -307,13 +307,26 @@
     <fieldset>
       <legend>界面</legend>
       <p class="field-note">
-        对话区背景是程序化绘制的终端风格图层，拖动它可以移动视角，
-        立绘会以更快的速度跟随，形成纵深。
+        对话区背景是程序化绘制的终端风格图层（网格、扫描线、数据刻度），
+        界面元素半透明地融入其中。
       </p>
-      <label class="field switch">
-        <span>可拖拽的视差背景</span>
-        <input id="set-parallax-enabled" type="checkbox">
+      <label class="field range">
+        <span>界面融合强度 <output id="out-fuse">0.7</output></span>
+        <input id="set-fuse" type="range" min="0" max="1" step="0.05" value="0.7">
       </label>
+      <p class="field-note">
+        0 = 传统卡片（最清晰）；1 = 完全融入背景。
+        调低可提升可读性，调高更接近游戏内 HDD 界面的观感。
+      </p>
+      <label class="field range">
+        <span>背景网格密度 <output id="out-bg-density">1.0</output></span>
+        <input id="set-bg-density" type="range" min="0.5" max="2" step="0.1" value="1">
+      </label>
+      <label class="field range">
+        <span>背景亮度 <output id="out-bg-bright">1.0</output></span>
+        <input id="set-bg-bright" type="range" min="0.3" max="1.6" step="0.1" value="1">
+      </label>
+
       <label class="field switch">
         <span>朗读前播放提示音</span>
         <input id="set-chime-enabled" type="checkbox">

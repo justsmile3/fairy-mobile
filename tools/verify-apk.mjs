@@ -459,7 +459,7 @@ async function runChecks(ws) {
     add('背景已实际绘制（非空白）', painted.ok,
       painted.ok ? `中心像素 rgba(${painted.rgba.join(',')})` : painted.why);
 
-    // 拖动应触发视差：模拟横向拖动手势
+    // 拖动**不应**移动背景（本次需求：背景静止，位置靠设置调节）
     const dragResult = await evaluate(`
       (async () => {
         const chat = document.querySelector('#chat');
@@ -469,44 +469,76 @@ async function runChecks(ws) {
         const rect = chat.getBoundingClientRect();
         const y = rect.top + 120;
         const x0 = rect.left + rect.width - 40;
-
-        const fire = (type, x) => {
-          const ev = new PointerEvent(type, {
-            bubbles: true, cancelable: true, clientX: x, clientY: y,
-            pointerId: 1, pointerType: 'touch', isPrimary: true, buttons: 1,
-          });
-          chat.dispatchEvent(ev);
-        };
+        const fire = (type, x) => chat.dispatchEvent(new PointerEvent(type, {
+          bubbles: true, cancelable: true, clientX: x, clientY: y,
+          pointerId: 1, pointerType: 'touch', isPrimary: true, buttons: 1,
+        }));
         fire('pointerdown', x0);
         for (let i = 1; i <= 6; i++) fire('pointermove', x0 - i * 18);
-        await new Promise(r => setTimeout(r, 120));
+        await new Promise(r => setTimeout(r, 150));
         const during = pet.style.transform || '';
         fire('pointerup', x0 - 108);
-        await new Promise(r => setTimeout(r, 700));
-        const after = pet.style.transform || '';
-        return { ok: during !== before, during, after };
+        await new Promise(r => setTimeout(r, 300));
+        return { ok: during === before, before, during };
       })()
     `);
-    add('横向拖动会产生视差位移',
+    add('拖动不会移动背景/立绘（背景静止）',
       dragResult.ok,
-      dragResult.ok ? dragResult.during.slice(0, 46) : dragResult.why);
-    add('松手后视差回弹到原位',
-      (dragResult.after === '' || dragResult.after === 'none'),
-      `回弹后 transform="${dragResult.after}"`);
+      dragResult.ok ? '拖动无位移' : `位移了：${dragResult.during}`);
 
-    // 界面设置里应有提示音与视差开关
-    const appearUi = await evaluate(`
+    // 界面融合：应存在 --fuse 变量，且顶栏/输入区不再是实色卡片
+    const fuseInfo = await evaluate(`
+      (() => {
+        const cs = getComputedStyle(document.documentElement);
+        const fuse = cs.getPropertyValue('--fuse').trim();
+        const inv = cs.getPropertyValue('--fuse-inv').trim();
+        const topbar = document.querySelector('#topbar');
+        const composer = document.querySelector('#composer-box');
+        const tcs = topbar ? getComputedStyle(topbar) : null;
+        const ccs = composer ? getComputedStyle(composer) : null;
+        return {
+          fuse, inv,
+          topbarBorderBottom: tcs ? tcs.borderBottomWidth : '',
+          topbarBg: tcs ? tcs.backgroundImage.slice(0, 40) : '',
+          composerHasLeftGlow: ccs ? ccs.borderLeftWidth : '',
+          composerRadius: ccs ? ccs.borderTopLeftRadius : '',
+        };
+      })()
+    `);
+    add('界面融合变量已生效',
+      fuseInfo.fuse !== '' && fuseInfo.inv !== '',
+      `--fuse=${fuseInfo.fuse} --fuse-inv=${fuseInfo.inv}`);
+    add('顶栏不再是实色卡片（无实线分隔）',
+      fuseInfo.topbarBorderBottom === '0px',
+      `border-bottom=${fuseInfo.topbarBorderBottom}`);
+    add('输入条改为发光左边（终端风格）',
+      parseFloat(fuseInfo.composerHasLeftGlow) >= 2,
+      `border-left=${fuseInfo.composerHasLeftGlow} 圆角=${fuseInfo.composerRadius}`);
+
+    // 背景参数设置项
+    const bgParams = await evaluate(`
       (() => ({
-        parallax: !!document.querySelector('#set-parallax-enabled'),
-        chime: !!document.querySelector('#set-chime-enabled'),
+        fuse: !!document.querySelector('#set-fuse'),
+        density: !!document.querySelector('#set-bg-density'),
+        bright: !!document.querySelector('#set-bg-bright'),
+      }))()
+    `);
+    add('设置里有融合强度与背景参数',
+      bgParams.fuse && bgParams.density && bgParams.bright,
+      '');
+
+    // 提示音设置项
+    const chimeUi = await evaluate(`
+      (() => ({
+        toggle: !!document.querySelector('#set-chime-enabled'),
         preset: document.querySelector('#set-chime-preset')?.options.length || 0,
         vol: !!document.querySelector('#set-chime-volume'),
         testBtn: !!document.querySelector('#btn-chime-test'),
       }))()
     `);
-    add('设置里有视差与提示音开关',
-      appearUi.parallax && appearUi.chime && appearUi.vol && appearUi.testBtn,
-      `音色选项 ${appearUi.preset} 个`);
+    add('设置里有提示音开关与音色选项',
+      chimeUi.toggle && chimeUi.vol && chimeUi.testBtn && chimeUi.preset >= 4,
+      `音色选项 ${chimeUi.preset} 个`);
 
     // 提示音必须能真正合成出声音（AudioContext 可创建且未报错）
     const chimeInfo = await evaluate(`

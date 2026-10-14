@@ -14,6 +14,17 @@
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
           "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  /*
+    界面与背景的融合强度（0–1），由设置驱动（见 applyFuse）。
+      --fuse     ：0 = 传统卡片（最清晰），1 = 完全融入背景
+      --fuse-inv ：1 - fuse，用于"需要保留多少不透明度"的计算
+
+    用变量而不是写死数值，这样用户能按自己的屏幕与偏好调节，
+    不至于在亮屏或暗屏下看不清文字。
+  */
+  --fuse: 0.7;
+  --fuse-inv: 0.3;
 }
 
 :root[data-theme="dark"] {
@@ -135,12 +146,44 @@ button { cursor: pointer; }
   gap: 6px;
   min-height: var(--topbar-h);
   padding: env(safe-area-inset-top, 0px) var(--pad) 0;
-  background: color-mix(in srgb, var(--bg) 86%, transparent);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border-bottom: 1px solid var(--border);
+  /*
+    与背景融合：
+    不再用一整块不透明底色 + 实线分隔，而是极淡的渐变蒙版，
+    让下方的网格隐约透出；分隔线改用发光线（细 + 渐变透明），
+    像终端面板的边缘，而不是卡片的边框。
+  */
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--bg) calc(74% * var(--fuse-inv)), transparent) 0%,
+    color-mix(in srgb, var(--bg) calc(42% * var(--fuse-inv)), transparent) 70%,
+    transparent 100%
+  );
+  backdrop-filter: blur(calc(14px * var(--fuse-inv)));
+  -webkit-backdrop-filter: blur(calc(14px * var(--fuse-inv)));
+  border-bottom: none;
   z-index: 20;
 }
+
+/* 顶栏下方的发光线：中间亮、两端淡出，像终端面板的边沿 */
+#topbar::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    color-mix(in srgb, var(--accent) 55%, transparent) 22%,
+    color-mix(in srgb, var(--accent) 70%, transparent) 50%,
+    color-mix(in srgb, var(--accent) 55%, transparent) 78%,
+    transparent 100%
+  );
+  opacity: calc(0.75 * var(--fuse));
+  pointer-events: none;
+}
+#topbar { position: relative; }
 #topbar-title {
   flex: 1 1 auto;
   min-width: 0;
@@ -288,29 +331,57 @@ body:has(#chat.is-parallaxing) #mascot-layer {
 }
 .msg-body {
   padding: 11px 14px;
-  border-radius: var(--radius);
   /*
-    半透明 + 背景模糊：
-    背景是网格与扫描线，若气泡用不透明纯色会把背景完全遮住，
-    视差效果就白做了；但完全透明又会让长文本压在网格上难以阅读。
-    这里取折中 —— 78% 不透明 + 8px 模糊，既能看到背景在动，
-    文字也始终清晰。
+    与背景融合：从"实心圆角卡片"改为"终端数据块"。
+
+    手法：
+      - 左侧一条竖直发光边（像终端里的一段输出）
+      - 底色随融合强度递减，让网格透出来
+      - 圆角随融合强度收窄，越融合越接近直角（更"数据"、更少"卡片"）
+      - 文字始终保留足够对比度：底色不会低于 45% 不透明，
+        否则长文本压在网格上会难以阅读
   */
-  background: color-mix(in srgb, var(--card) 78%, transparent);
-  -webkit-backdrop-filter: blur(8px) saturate(115%);
-  backdrop-filter: blur(8px) saturate(115%);
-  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * (1 - var(--fuse) * 0.62));
+  background: color-mix(
+    in srgb,
+    var(--card) calc(45% + 40% * var(--fuse-inv)),
+    transparent
+  );
+  backdrop-filter: blur(calc(8px * var(--fuse-inv)));
+  -webkit-backdrop-filter: blur(calc(8px * var(--fuse-inv)));
+  border: 1px solid color-mix(
+    in srgb,
+    var(--border) calc(45% + 45% * var(--fuse-inv)),
+    transparent
+  );
+  border-left: 2px solid color-mix(
+    in srgb,
+    var(--accent) calc(38% + 30% * var(--fuse)),
+    transparent
+  );
   overflow-wrap: anywhere;
 }
 .msg.user { align-items: flex-end; }
 .msg.user .msg-role { flex-direction: row-reverse; }
 .msg.user .msg-body {
-  /* 用户气泡同样半透明，保持背景可见的一致性 */
-  background: color-mix(in srgb, var(--accent-soft) 88%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
+  /* 用户气泡：用右侧发光边与助手区分，同样融入背景 */
+  background: color-mix(
+    in srgb,
+    var(--accent) calc(10% + 8% * var(--fuse-inv)),
+    transparent
+  );
+  border-left: 1px solid color-mix(
+    in srgb,
+    var(--border) calc(45% + 45% * var(--fuse-inv)),
+    transparent
+  );
+  border-right: 2px solid color-mix(
+    in srgb,
+    var(--accent) calc(62% + 24% * var(--fuse)),
+    transparent
+  );
 }
-.msg.assistant .msg-body { border-top-left-radius: 4px; }
-.msg.user .msg-body { border-top-right-radius: 4px; }
+/* 圆角已由 --fuse 统一控制，这里不再单独覆盖，避免两套规则打架 */
 .msg.error .msg-body { border-color: var(--danger); color: var(--danger); }
 
 /* 消息里的 Markdown */
@@ -476,23 +547,77 @@ body:has(#chat.is-parallaxing) #mascot-layer {
 #composer {
   flex: 0 0 auto;
   padding: 8px var(--pad) calc(8px + env(safe-area-inset-bottom, 0px));
-  background: color-mix(in srgb, var(--bg) 90%, transparent);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border-top: 1px solid var(--border);
+  /*
+    与背景融合：不用整块实色，改用自下而上的蒙版，
+    让网格在输入区上方自然淡出；分隔线换成发光线。
+  */
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--bg) calc(88% * var(--fuse-inv)), transparent) 0%,
+    color-mix(in srgb, var(--bg) calc(52% * var(--fuse-inv)), transparent) 65%,
+    transparent 100%
+  );
+  backdrop-filter: blur(calc(14px * var(--fuse-inv)));
+  -webkit-backdrop-filter: blur(calc(14px * var(--fuse-inv)));
+  border-top: none;
+  position: relative;
   z-index: 20;
 }
+
+#composer::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    color-mix(in srgb, var(--accent) 50%, transparent) 25%,
+    color-mix(in srgb, var(--accent) 65%, transparent) 50%,
+    color-mix(in srgb, var(--accent) 50%, transparent) 75%,
+    transparent 100%
+  );
+  opacity: calc(0.7 * var(--fuse));
+  pointer-events: none;
+}
+
 #composer-box {
   display: flex;
   align-items: flex-end;
   gap: 6px;
   padding: 5px 5px 5px 12px;
-  border: 1px solid var(--border);
-  border-radius: 22px;
-  background: var(--card);
-  transition: border-color var(--dur) var(--ease);
+  /*
+    终端输入条：用左侧一条竖直发光边代替四边框 + 圆角卡片。
+    这样它读起来像"命令行输入行"，而不是聊天软件的输入框。
+  */
+  border: 1px solid color-mix(
+    in srgb,
+    var(--accent) calc(26% + 22% * var(--fuse)),
+    transparent
+  );
+  border-left: 2px solid color-mix(
+    in srgb,
+    var(--accent) calc(58% + 26% * var(--fuse)),
+    transparent
+  );
+  border-radius: calc(var(--radius-sm) * (1 - var(--fuse) * 0.55));
+  background: color-mix(
+    in srgb,
+    var(--card) calc(20% + 62% * var(--fuse-inv)),
+    transparent
+  );
+  backdrop-filter: blur(calc(10px * var(--fuse-inv)));
+  -webkit-backdrop-filter: blur(calc(10px * var(--fuse-inv)));
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 }
-#composer-box:focus-within { border-color: var(--accent); }
+#composer-box:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 72%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 26%, transparent),
+    0 0 18px -4px color-mix(in srgb, var(--accent) 48%, transparent);
+}
 #input {
   flex: 1 1 auto;
   min-width: 0;

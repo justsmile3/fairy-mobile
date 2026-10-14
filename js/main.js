@@ -32,7 +32,6 @@ import {
 } from './search.js';
 import { initSearchUi } from './search-ui.js';
 import { createHddBackground } from './hdd-bg.js';
-import { createParallax } from './parallax.js';
 import { createChime, CHIME_PRESETS } from './chime.js';
 
 const BUILD_VERSION = '0.1.0';
@@ -60,12 +59,16 @@ const state = {
 let floatingBall = null;
 /** 联网搜索的设置界面控制器 */
 let searchUi = null;
-/** 背景与视差控制器 */
+/** 背景控制器（boot 时创建） */
 let hddBackground = null;
-let parallax = null;
 
 /**
- * 初始化可拖拽的视差背景。
+ * 初始化终端风格背景。
+ *
+ * 需求澄清（与早期实现的差异）：
+ *   背景**不可拖动** —— 它是一层稳稳铺在内容之下的"环境"，
+ *   而不是可以推来推去的画布。位置通过设置里的偏移量自定义，
+ *   网格密度与亮度也各有滑块。
  *
  * ⚠️ 背景完全由代码绘制，不含任何游戏素材 ——
  * 风格可以借鉴，具体素材不能复用（与本项目移除内置录音同一原则）。
@@ -77,23 +80,29 @@ function initBackground() {
   const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
   hddBackground = createHddBackground(canvas, { reducedMotion: Boolean(reduced) });
   hddBackground.setTheme(state.settings.theme === 'light' ? 'light' : 'dark');
-
-  parallax = createParallax({
-    surface: $('#chat'),
-    background: hddBackground,
-    pet: $('#mascot-layer'),
-    enabled: state.settings.parallaxEnabled !== false,
-  });
+  hddBackground.setDensity(state.settings.bgDensity ?? 1);
+  hddBackground.setBrightness(state.settings.bgBrightness ?? 1);
+  // 位置偏移：用户可自定义，但不通过拖动改变
+  hddBackground.setParallax(
+    Number(state.settings.bgOffsetX) || 0,
+    Number(state.settings.bgOffsetY) || 0,
+  );
 }
 
-/** 绑定「界面」设置：视差背景与提示音 */
+/** 绑定「界面」设置：融合强度、背景参数、提示音 */
 function initAppearanceUi() {
-  const parallaxToggle = $('#set-parallax-enabled');
   const chimeToggle = $('#set-chime-enabled');
   const presetSel = $('#set-chime-preset');
   const volRange = $('#set-chime-volume');
   const volOut = $('#out-chime-vol');
   const testBtn = $('#btn-chime-test');
+
+  const fuseRange = $('#set-fuse');
+  const fuseOut = $('#out-fuse');
+  const densityRange = $('#set-bg-density');
+  const densityOut = $('#out-bg-density');
+  const brightRange = $('#set-bg-bright');
+  const brightOut = $('#out-bg-bright');
 
   // 填充音色选项
   if (presetSel && !presetSel.options.length) {
@@ -103,16 +112,49 @@ function initAppearanceUi() {
   }
 
   const s = state.settings;
-  if (parallaxToggle) parallaxToggle.checked = s.parallaxEnabled !== false;
   if (chimeToggle) chimeToggle.checked = s.chimeEnabled !== false;
   if (presetSel) presetSel.value = s.chimePreset || 'terminal';
   if (volRange) volRange.value = String(s.chimeVolume ?? 0.7);
   if (volOut) volOut.textContent = Number(s.chimeVolume ?? 0.7).toFixed(1);
 
-  parallaxToggle?.addEventListener('change', (e) => {
-    saveSettings({ parallaxEnabled: e.target.checked });
-    try { parallax?.setEnabled(e.target.checked); } catch { /* 忽略 */ }
-    toast(e.target.checked ? '已开启视差背景。' : '已关闭视差背景。');
+  if (fuseRange) fuseRange.value = String(s.fuseLevel ?? 0.7);
+  if (fuseOut) fuseOut.textContent = Number(s.fuseLevel ?? 0.7).toFixed(1);
+  if (densityRange) densityRange.value = String(s.bgDensity ?? 1);
+  if (densityOut) densityOut.textContent = Number(s.bgDensity ?? 1).toFixed(1);
+  if (brightRange) brightRange.value = String(s.bgBrightness ?? 1);
+  if (brightOut) brightOut.textContent = Number(s.bgBrightness ?? 1).toFixed(1);
+
+  /* ── 融合强度 ── */
+  fuseRange?.addEventListener('input', (e) => {
+    const v = Number(e.target.value);
+    if (fuseOut) fuseOut.textContent = v.toFixed(1);
+    // 直接改 CSS 变量，滑块拖动时实时预览
+    const root = document.documentElement;
+    root.style.setProperty('--fuse', v.toFixed(3));
+    root.style.setProperty('--fuse-inv', (1 - v).toFixed(3));
+  });
+  fuseRange?.addEventListener('change', (e) => {
+    saveSettings({ fuseLevel: Number(e.target.value) });
+  });
+
+  /* ── 背景网格密度 ── */
+  densityRange?.addEventListener('input', (e) => {
+    const v = Number(e.target.value);
+    if (densityOut) densityOut.textContent = v.toFixed(1);
+    try { hddBackground?.setDensity?.(v); } catch { /* 忽略 */ }
+  });
+  densityRange?.addEventListener('change', (e) => {
+    saveSettings({ bgDensity: Number(e.target.value) });
+  });
+
+  /* ── 背景亮度 ── */
+  brightRange?.addEventListener('input', (e) => {
+    const v = Number(e.target.value);
+    if (brightOut) brightOut.textContent = v.toFixed(1);
+    try { hddBackground?.setBrightness?.(v); } catch { /* 忽略 */ }
+  });
+  brightRange?.addEventListener('change', (e) => {
+    saveSettings({ bgBrightness: Number(e.target.value) });
   });
 
   chimeToggle?.addEventListener('change', (e) => {
@@ -159,6 +201,24 @@ function initAppearanceUi() {
 }
 
 /* ── 主题 ─────────────────────────────────────────────── */
+
+/**
+ * 应用「界面融合」强度。
+ *
+ * 融合强度决定 UI 元素在多大程度上融入背景：
+ *   0   → 传统卡片：实色底 + 圆角，最清晰
+ *   1   → 完全融入：极淡底色 + 发光边，像背景网格的一部分
+ *
+ * 用 CSS 变量驱动（--fuse / --fuse-inv），样式表里所有相关元素
+ * 都基于这两个变量计算，因此这里改一个数就能整体生效。
+ * 默认值给 0.7：观感上已经融入背景，但文字对比度仍然充足。
+ */
+function applyFuse() {
+  const level = Math.max(0, Math.min(1, Number(state.settings.fuseLevel ?? 0.7)));
+  const root = document.documentElement;
+  root.style.setProperty('--fuse', level.toFixed(3));
+  root.style.setProperty('--fuse-inv', (1 - level).toFixed(3));
+}
 
 function applyTheme() {
   const pref = state.settings.theme;
@@ -1269,6 +1329,7 @@ function syncModelOptions() {
 
 function saveSettings(patch) {
   state.settings = patchSettings(patch);
+  applyFuse();
   applyTheme();
   safeMascot('setScale', state.settings.scale / 100);
   safeMascot('setAnimationSpeed', state.settings.animSpeed);
@@ -1673,6 +1734,7 @@ function bindGlobal() {
 
 async function boot() {
   state.settings = getSettings();
+  applyFuse();
   applyTheme();
   syncSettingsUI();
   bindGlobal();

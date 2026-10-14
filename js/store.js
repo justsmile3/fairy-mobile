@@ -71,8 +71,14 @@ export const DEFAULT_SETTINGS = Object.freeze({
   chimePreset: 'terminal',
   chimeVolume: 0.7,
 
-  // ── 视差背景（HDD 终端风格）────────────────────────
-  parallaxEnabled: true,
+  // ── 背景（HDD 终端风格）────────────────────────────
+  // 背景是**静止**的终端风格图层，UI 元素半透明地融入其中。
+  // 位置可通过偏移量自定义（不通过拖动，避免误触把界面推歪）。
+  fuseLevel: 0.7,       // 界面融合强度：0 = 传统卡片，1 = 完全融入背景
+  bgDensity: 1,         // 网格密度
+  bgBrightness: 1,      // 整体亮度
+  bgOffsetX: 0,         // 背景水平偏移（px）
+  bgOffsetY: 0,         // 背景垂直偏移（px）
   // 外观
   theme: 'dark',
   scale: 100,
