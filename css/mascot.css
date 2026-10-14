@@ -92,10 +92,22 @@
 
 .fairy-mascot-halo-layer {
   position: absolute;
-  left: -112.5%;
-  top: -43.75%;
+  /*
+    光环层的 viewBox 是 -180 -70 520 320（中心 80,90），
+    比主体（0 0 160 160，中心 80,80）大得多，需要放大并偏移来对齐。
+
+    这里刻意**不使用百分比定位**（left: -112.5% 之类）：
+    百分比 left 相对包含块宽度计算，而这一层自身的 width 也是百分比，
+    在容器尺寸变化时两者的基准容易错位 —— 实测在 96px 的小容器上
+    光环会整体左移约 108px，看起来像立绘旁边凭空多出一个空心圆。
+
+    改用「宽高按倍数放大 + transform 居中」的写法，基准明确、不随容器漂移。
+  */
+  left: 50%;
+  top: 50%;
   width: 325%;
   height: 200%;
+  transform: translate(-50%, -50%);
   z-index: 1;
   opacity: .92;
   pointer-events: none;
@@ -105,12 +117,19 @@
 
 .fairy-mascot-pulse-layer {
   position: absolute;
-  left: -100%;
-  top: -100%;
+  /* 与 halo 层同理：改用 transform 居中，避免百分比基准的歧义 */
+  left: 50%;
+  top: 50%;
   width: 300%;
   height: 300%;
+  transform: translate(-50%, -50%);
   z-index: 0;
-  opacity: .92;
+  /*
+    注意：这里**不设** opacity。
+    脉冲环本体（.fairy-mascot-lash-pulse-wave）在 idle 状态下是 opacity:0，
+    只在 thinking / alert 才动画。若给整层设不透明度，会把本应隐藏的
+    装饰轮廓显出来 —— 表现为立绘旁边多出一个突兀的空心圆。
+  */
   pointer-events: none;
 }
 
@@ -459,7 +478,13 @@
     opacity: .78;
   }
 
-  .fairy-mascot-pulse-layer {
-    opacity: .82;
-  }
+  /*
+    注意：这里**不能**给 pulse-layer 设整体 opacity。
+
+    脉冲环在 idle 状态下是 opacity:0（只在 thinking / alert 才动画）。
+    若把整层设为 .82，会把本应隐藏的装饰轮廓显出来 ——
+    表现为立绘旁边凭空多出一个空心圆（截图确认过）。
+
+    小屏要淡化装饰，应作用于 halo 层（上面那条），而不是脉冲层。
+  */
 }

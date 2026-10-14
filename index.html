@@ -35,6 +35,14 @@
 
 <!-- ── 对话区 ───────────────────────────────────────────── -->
 <main id="chat" role="log" aria-live="polite" aria-label="对话内容">
+
+  <!--
+    可拖拽的视差背景（HDD 终端风格）。
+    全部程序化绘制，不含任何游戏素材 —— 风格可借鉴，素材不可复用。
+    拖动时远景几乎不动、立绘明显位移，形成纵深。
+  -->
+  <canvas id="hdd-bg" aria-hidden="true"></canvas>
+
   <div id="empty-state">
     <h1>Fairy</h1>
     <p class="tagline">Ⅲ型总序式集成泛用人工智能 · 待命中</p>
@@ -294,6 +302,36 @@
           <input id="set-stt-secret" type="password" placeholder="留空则只用系统识别" autocomplete="off" spellcheck="false">
         </label>
       </details>
+    </fieldset>
+
+    <fieldset>
+      <legend>界面</legend>
+      <p class="field-note">
+        对话区背景是程序化绘制的终端风格图层，拖动它可以移动视角，
+        立绘会以更快的速度跟随，形成纵深。
+      </p>
+      <label class="field switch">
+        <span>可拖拽的视差背景</span>
+        <input id="set-parallax-enabled" type="checkbox">
+      </label>
+      <label class="field switch">
+        <span>朗读前播放提示音</span>
+        <input id="set-chime-enabled" type="checkbox">
+      </label>
+      <label class="field">
+        <span>提示音音色</span>
+        <select id="set-chime-preset"></select>
+      </label>
+      <label class="field range">
+        <span>提示音音量 <output id="out-chime-vol">0.7</output></span>
+        <input id="set-chime-volume" type="range" min="0" max="1" step="0.05" value="0.7">
+      </label>
+      <div class="row">
+        <button id="btn-chime-test" class="mini-btn" type="button">试听提示音</button>
+      </div>
+      <p class="field-note">
+        提示音由 Web Audio 实时合成，<b>不含任何音频素材文件</b>。
+      </p>
     </fieldset>
 
     <fieldset>

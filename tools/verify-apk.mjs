@@ -427,6 +427,152 @@ async function runChecks(ws) {
     `);
     add('保留手动上传录音的备选入口', hasFileInput);
 
+    /* ── 视差背景与提示音 ── */
+
+    // 背景画布必须存在且尺寸正确（Canvas 为 0 尺寸时画不出东西）
+    const bgInfo = await evaluate(`
+      (() => {
+        const c = document.querySelector('#hdd-bg');
+        if (!c) return { ok: false, why: '画布不存在' };
+        return {
+          ok: c.width > 0 && c.height > 0,
+          w: c.width, h: c.height,
+          isCanvas: c.tagName === 'CANVAS',
+        };
+      })()
+    `);
+    add('视差背景画布已渲染', bgInfo.ok && bgInfo.isCanvas,
+      bgInfo.ok ? `${bgInfo.w}×${bgInfo.h}` : bgInfo.why);
+
+    // 背景确实画了东西（读取像素，全透明说明没画）
+    const painted = await evaluate(`
+      (() => {
+        const c = document.querySelector('#hdd-bg');
+        if (!c || !c.width) return { ok: false, why: '画布不可用' };
+        try {
+          const ctx = c.getContext('2d');
+          const d = ctx.getImageData(Math.floor(c.width/2), Math.floor(c.height/2), 1, 1).data;
+          return { ok: d[3] > 0, rgba: [d[0], d[1], d[2], d[3]] };
+        } catch (e) { return { ok: false, why: e.message }; }
+      })()
+    `);
+    add('背景已实际绘制（非空白）', painted.ok,
+      painted.ok ? `中心像素 rgba(${painted.rgba.join(',')})` : painted.why);
+
+    // 拖动应触发视差：模拟横向拖动手势
+    const dragResult = await evaluate(`
+      (async () => {
+        const chat = document.querySelector('#chat');
+        const pet = document.querySelector('#mascot-layer');
+        if (!chat || !pet) return { ok: false, why: '元素缺失' };
+        const before = pet.style.transform || '';
+        const rect = chat.getBoundingClientRect();
+        const y = rect.top + 120;
+        const x0 = rect.left + rect.width - 40;
+
+        const fire = (type, x) => {
+          const ev = new PointerEvent(type, {
+            bubbles: true, cancelable: true, clientX: x, clientY: y,
+            pointerId: 1, pointerType: 'touch', isPrimary: true, buttons: 1,
+          });
+          chat.dispatchEvent(ev);
+        };
+        fire('pointerdown', x0);
+        for (let i = 1; i <= 6; i++) fire('pointermove', x0 - i * 18);
+        await new Promise(r => setTimeout(r, 120));
+        const during = pet.style.transform || '';
+        fire('pointerup', x0 - 108);
+        await new Promise(r => setTimeout(r, 700));
+        const after = pet.style.transform || '';
+        return { ok: during !== before, during, after };
+      })()
+    `);
+    add('横向拖动会产生视差位移',
+      dragResult.ok,
+      dragResult.ok ? dragResult.during.slice(0, 46) : dragResult.why);
+    add('松手后视差回弹到原位',
+      (dragResult.after === '' || dragResult.after === 'none'),
+      `回弹后 transform="${dragResult.after}"`);
+
+    // 界面设置里应有提示音与视差开关
+    const appearUi = await evaluate(`
+      (() => ({
+        parallax: !!document.querySelector('#set-parallax-enabled'),
+        chime: !!document.querySelector('#set-chime-enabled'),
+        preset: document.querySelector('#set-chime-preset')?.options.length || 0,
+        vol: !!document.querySelector('#set-chime-volume'),
+        testBtn: !!document.querySelector('#btn-chime-test'),
+      }))()
+    `);
+    add('设置里有视差与提示音开关',
+      appearUi.parallax && appearUi.chime && appearUi.vol && appearUi.testBtn,
+      `音色选项 ${appearUi.preset} 个`);
+
+    // 提示音必须能真正合成出声音（AudioContext 可创建且未报错）
+    const chimeInfo = await evaluate(`
+      (() => {
+        try {
+          const Ctor = window.AudioContext || window.webkitAudioContext;
+          if (!Ctor) return { ok: false, why: '浏览器不支持 Web Audio' };
+          const ctx = new Ctor();
+          const ok = typeof ctx.createOscillator === 'function';
+          ctx.close();
+          return { ok, state: 'ok' };
+        } catch (e) { return { ok: false, why: e.message }; }
+      })()
+    `);
+    add('提示音合成可用（Web Audio）', chimeInfo.ok, chimeInfo.why || '');
+
+    // ★ 回归：立绘的三层 SVG（光环 / 脉冲 / 主体）必须**几何对齐**。
+    //
+    // 曾经光环层用 left: -112.5% 定位，在 96px 的小容器上整体左移约 108px，
+    // 表现为立绘旁边凭空多出一个空心圆（截图才发现）。
+    // 改用 left:50% + translate(-50%,-50%) 后基准明确，不再随容器漂移。
+    const layerAlign = await evaluate(`
+      (() => {
+        const sel = [
+          '.fairy-mascot-halo-layer',
+          '.fairy-mascot-pulse-layer',
+          '.fairy-mascot-svg-main',
+        ];
+        const rects = sel.map((s) => {
+          const el = document.querySelector(s);
+          if (!el) return { s, missing: true };
+          const r = el.getBoundingClientRect();
+          return { s, x: Math.round(r.left), y: Math.round(r.top),
+                   w: Math.round(r.width), h: Math.round(r.height) };
+        });
+        const ok = rects.every((r) => !r.missing);
+        if (!ok) return { ok: false, why: '存在缺失层', rects };
+        const base = rects[2];
+        // 允许 2px 误差
+        const aligned = rects.every((r) =>
+          Math.abs(r.x - base.x) <= 2 && Math.abs(r.y - base.y) <= 2
+          && Math.abs(r.w - base.w) <= 2 && Math.abs(r.h - base.h) <= 2);
+        return { ok: aligned, rects };
+      })()
+    `);
+    add('立绘三层 SVG 几何对齐',
+      layerAlign.ok,
+      layerAlign.ok
+        ? '三层重合'
+        : JSON.stringify(layerAlign.rects || layerAlign.why));
+
+    // ★ 回归：脉冲环在 idle 状态必须不可见（否则立绘旁会多出装饰轮廓）
+    const pulseHidden = await evaluate(`
+      (() => {
+        const wave = document.querySelector('.fairy-mascot-lash-pulse-wave');
+        const layer = document.querySelector('.fairy-mascot-pulse-layer');
+        if (!wave) return { ok: false, why: '找不到脉冲环' };
+        const wv = Number(getComputedStyle(wave).opacity);
+        const lv = Number(getComputedStyle(layer || wave).opacity);
+        return { ok: wv < 0.01 && lv > 0.5, waveOpacity: wv, layerOpacity: lv };
+      })()
+    `);
+    add('idle 状态下脉冲环不可见',
+      pulseHidden.ok,
+      `环=${pulseHidden.waveOpacity} 层=${pulseHidden.layerOpacity}`);
+
     /* ── 联网搜索 ── */
 
     const searchUi = await evaluate(`

@@ -31,6 +31,9 @@ import {
   shouldSearch, buildQuery, search, formatForPrompt, injectSearchContext,
 } from './search.js';
 import { initSearchUi } from './search-ui.js';
+import { createHddBackground } from './hdd-bg.js';
+import { createParallax } from './parallax.js';
+import { createChime, CHIME_PRESETS } from './chime.js';
 
 const BUILD_VERSION = '0.1.0';
 
@@ -49,12 +52,111 @@ const state = {
   stt: null,
   listening: false,
   sleepTimer: null,
+  /** 语音提示音播放器 */
+  chime: null,
 };
 
 /** 悬浮球控制器（boot 时创建），设置面板打开时用它刷新状态 */
 let floatingBall = null;
 /** 联网搜索的设置界面控制器 */
 let searchUi = null;
+/** 背景与视差控制器 */
+let hddBackground = null;
+let parallax = null;
+
+/**
+ * 初始化可拖拽的视差背景。
+ *
+ * ⚠️ 背景完全由代码绘制，不含任何游戏素材 ——
+ * 风格可以借鉴，具体素材不能复用（与本项目移除内置录音同一原则）。
+ */
+function initBackground() {
+  const canvas = $('#hdd-bg');
+  if (!canvas) return;
+
+  const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+  hddBackground = createHddBackground(canvas, { reducedMotion: Boolean(reduced) });
+  hddBackground.setTheme(state.settings.theme === 'light' ? 'light' : 'dark');
+
+  parallax = createParallax({
+    surface: $('#chat'),
+    background: hddBackground,
+    pet: $('#mascot-layer'),
+    enabled: state.settings.parallaxEnabled !== false,
+  });
+}
+
+/** 绑定「界面」设置：视差背景与提示音 */
+function initAppearanceUi() {
+  const parallaxToggle = $('#set-parallax-enabled');
+  const chimeToggle = $('#set-chime-enabled');
+  const presetSel = $('#set-chime-preset');
+  const volRange = $('#set-chime-volume');
+  const volOut = $('#out-chime-vol');
+  const testBtn = $('#btn-chime-test');
+
+  // 填充音色选项
+  if (presetSel && !presetSel.options.length) {
+    for (const p of Object.values(CHIME_PRESETS)) {
+      presetSel.append(new Option(p.label, p.id));
+    }
+  }
+
+  const s = state.settings;
+  if (parallaxToggle) parallaxToggle.checked = s.parallaxEnabled !== false;
+  if (chimeToggle) chimeToggle.checked = s.chimeEnabled !== false;
+  if (presetSel) presetSel.value = s.chimePreset || 'terminal';
+  if (volRange) volRange.value = String(s.chimeVolume ?? 0.7);
+  if (volOut) volOut.textContent = Number(s.chimeVolume ?? 0.7).toFixed(1);
+
+  parallaxToggle?.addEventListener('change', (e) => {
+    saveSettings({ parallaxEnabled: e.target.checked });
+    try { parallax?.setEnabled(e.target.checked); } catch { /* 忽略 */ }
+    toast(e.target.checked ? '已开启视差背景。' : '已关闭视差背景。');
+  });
+
+  chimeToggle?.addEventListener('change', (e) => {
+    saveSettings({ chimeEnabled: e.target.checked });
+    // 打开时立刻响一声，让用户确认效果
+    if (e.target.checked) {
+      try {
+        state.chime?.unlock();
+        state.chime?.play(state.settings.chimePreset || 'terminal');
+      } catch { /* 忽略 */ }
+    }
+  });
+
+  presetSel?.addEventListener('change', (e) => {
+    saveSettings({ chimePreset: e.target.value });
+    try {
+      state.chime?.unlock();
+      state.chime?.play(e.target.value);
+    } catch { /* 忽略 */ }
+  });
+
+  volRange?.addEventListener('input', (e) => {
+    const v = Number(e.target.value);
+    if (volOut) volOut.textContent = v.toFixed(1);
+    saveSettings({ chimeVolume: v });
+    try { state.chime?.setVolume(v); } catch { /* 忽略 */ }
+  });
+  // 松手时试听，拖动过程中不响（否则会连续叠加）
+  volRange?.addEventListener('change', () => {
+    try {
+      state.chime?.unlock();
+      state.chime?.play(state.settings.chimePreset || 'terminal');
+    } catch { /* 忽略 */ }
+  });
+
+  testBtn?.addEventListener('click', () => {
+    try {
+      state.chime?.unlock();
+      state.chime?.play(state.settings.chimePreset || 'terminal');
+    } catch (err) {
+      toast(`提示音播放失败：${err.message}`);
+    }
+  });
+}
 
 /* ── 主题 ─────────────────────────────────────────────── */
 
@@ -66,6 +168,8 @@ function applyTheme() {
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute('content', dark ? '#0f1318' : '#f2f5f8');
   safeMascot('setTheme', dark ? 'dark' : 'light');
+  // 背景是 Canvas 绘制的，不会跟随 CSS 变量，需要显式通知
+  try { hddBackground?.setTheme?.(dark ? 'dark' : 'light'); } catch { /* 忽略 */ }
 }
 
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
@@ -437,7 +541,31 @@ function setupTts() {
 async function initSpeech() {
   const note = $('#speech-support');
 
-  // ── 朗读后端
+  // ── 提示音 ──
+  // 语音播报前先响一声，像终端在确认"我要说话了"。
+  // 用 Web Audio 实时合成，不含任何音频素材。
+  try {
+    state.chime = createChime({ volume: Number(state.settings.chimeVolume) || 0.7 });
+  } catch (err) {
+    console.warn('[fairy] 提示音初始化失败', err);
+    state.chime = null;
+  }
+
+  // 原生的 TTS 开始事件 → 播放提示音。
+  // 选择这个时机而不是调用朗读时：云语音要先合成，
+  // 提前响会让提示音与说话之间出现尴尬的静默。
+  if (typeof window !== 'undefined') {
+    window.__fairyVoice = window.__fairyVoice || {};
+    const prevStart = window.__fairyVoice.onTtsStart;
+    window.__fairyVoice.onTtsStart = () => {
+      if (typeof prevStart === 'function') {
+        try { prevStart(); } catch { /* 忽略 */ }
+      }
+      playChimeBeforeSpeech();
+    };
+  }
+
+  // ── 朗读后端 ──
   //
   // APK 内的朗读走**云端 TTS**（由原生层发请求，规避 CORS），
   // 因此这里不再需要等待系统 TTS 引擎就绪。
@@ -489,6 +617,25 @@ function unlockSpeechOnce() {
  * 优先走云端 TTS（可配置、支持 Fairy 克隆音色）；
  * 若云语音未配置或不可用，再退回系统语音引擎。
  */
+/**
+ * 播放语音播报前的提示音。
+ *
+ * 时机选择：**在真正开始出声的那一刻**，而不是调用朗读 API 时。
+ * 原因：云语音需要先合成（几百毫秒到数秒），若在调用时就响提示音，
+ * 中间会有一段尴尬的静默，听起来像"提示音响了但没人说话"。
+ *
+ * 系统引擎与云语音都会经过 window.__fairyVoice.onTtsStart，
+ * 因此在那里统一触发，两种情况都能覆盖。
+ */
+function playChimeBeforeSpeech() {
+  if (!state.settings.chimeEnabled) return;
+  try {
+    state.chime?.play(state.settings.chimePreset || 'terminal');
+  } catch (err) {
+    console.warn('[fairy] 提示音播放失败', err);
+  }
+}
+
 function speakText(text, { auto = false } = {}) {
   const bridge = typeof window !== 'undefined' ? window.AndroidBridge : null;
   if (!bridge) {
@@ -499,6 +646,8 @@ function speakText(text, { auto = false } = {}) {
     }
     state.tts.cancel();
     setMascotState('speaking');
+    // 浏览器下没有原生的 onTtsStart 事件，直接在这里响
+    playChimeBeforeSpeech();
     state.tts.speak(text, {
       onEnd: () => { if (!state.streaming) setMascotState('idle'); },
       onError: () => { if (!state.streaming) setMascotState('idle'); },
@@ -1532,6 +1681,28 @@ async function boot() {
   bindMascotMenu();
   updateComposerState();
 
+  // ── 视差背景 ──
+  //
+  // 背景是程序化绘制的终端风格图层（网格、扫描线、光晕），
+  // 拖动对话区时远景缓慢移动、立绘明显位移，形成纵深。
+  try {
+    initBackground();
+  } catch (err) {
+    console.warn('[fairy] 背景初始化失败', err);
+  }
+
+  // ── 音频解锁 ──
+  //
+  // 移动端要求音频上下文由用户手势创建或恢复，否则提示音会被静默忽略。
+  // 这里挂一次性监听，用户第一次触碰页面时解锁。
+  const unlockAudio = () => {
+    try { state.chime?.unlock(); } catch { /* 忽略 */ }
+    document.removeEventListener('pointerdown', unlockAudio);
+    document.removeEventListener('keydown', unlockAudio);
+  };
+  document.addEventListener('pointerdown', unlockAudio, { passive: true });
+  document.addEventListener('keydown', unlockAudio);
+
   // 云端语音设置界面（提供商选择、克隆音色等）
   initCloudTtsUi({
     getSettings: () => state.settings,
@@ -1553,6 +1724,9 @@ async function boot() {
     getSettings: () => state.settings,
     save: (patch) => saveSettings(patch),
   });
+
+  // 界面：视差背景与提示音
+  initAppearanceUi();
 
   // 启动时把云识别凭据推给原生（原生侧不持久化，每次启动都要推）
   try {

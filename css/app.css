@@ -173,8 +173,59 @@ button { cursor: pointer; }
   -webkit-overflow-scrolling: touch;
   padding: var(--pad);
   scroll-behavior: smooth;
+  /* 背景层用 absolute 定位相对它，因此需要定位上下文 */
+  position: relative;
 }
 @media (prefers-reduced-motion: reduce) { #chat { scroll-behavior: auto; } }
+
+/* ── 可拖拽的视差背景 ─────────────────────────────────── */
+
+/*
+  sticky + 负 margin 的组合：让画布始终铺满可视区、且**不随内容滚动**。
+  若用 absolute，滚动时背景会跟着走，失去"空间感"。
+  负 margin 抵消 #chat 的 padding，使背景铺满全宽。
+*/
+#hdd-bg {
+  position: sticky;
+  top: calc(var(--pad) * -1);
+  left: calc(var(--pad) * -1);
+  display: block;
+  width: calc(100% + var(--pad) * 2);
+  height: calc(100vh - var(--pad) * 2);
+  margin-bottom: calc(-100vh + var(--pad) * 2);
+  margin-left: calc(var(--pad) * -1);
+  z-index: 0;
+  pointer-events: none;
+  /* 让背景在浅色主题下也不刺眼 */
+  opacity: 1;
+}
+
+/* 内容浮在背景之上 */
+#messages,
+#empty-state,
+#scroll-anchor {
+  position: relative;
+  z-index: 1;
+}
+
+/* 拖动视差时禁止选中文字，避免出现蓝色选区 */
+#chat.parallax-enabled.is-parallaxing {
+  cursor: grabbing;
+}
+.is-parallaxing,
+.is-parallaxing * {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 拖动时立绘需要更快的响应，去掉过渡以免滞后 */
+#mascot-layer {
+  transition: transform 120ms var(--ease);
+}
+#chat.is-parallaxing ~ #mascot-layer,
+body:has(#chat.is-parallaxing) #mascot-layer {
+  transition: none;
+}
 
 #messages { display: flex; flex-direction: column; gap: 14px; }
 
@@ -238,14 +289,24 @@ button { cursor: pointer; }
 .msg-body {
   padding: 11px 14px;
   border-radius: var(--radius);
-  background: var(--card);
+  /*
+    半透明 + 背景模糊：
+    背景是网格与扫描线，若气泡用不透明纯色会把背景完全遮住，
+    视差效果就白做了；但完全透明又会让长文本压在网格上难以阅读。
+    这里取折中 —— 78% 不透明 + 8px 模糊，既能看到背景在动，
+    文字也始终清晰。
+  */
+  background: color-mix(in srgb, var(--card) 78%, transparent);
+  -webkit-backdrop-filter: blur(8px) saturate(115%);
+  backdrop-filter: blur(8px) saturate(115%);
   border: 1px solid var(--border);
   overflow-wrap: anywhere;
 }
 .msg.user { align-items: flex-end; }
 .msg.user .msg-role { flex-direction: row-reverse; }
 .msg.user .msg-body {
-  background: var(--accent-soft);
+  /* 用户气泡同样半透明，保持背景可见的一致性 */
+  background: color-mix(in srgb, var(--accent-soft) 88%, transparent);
   border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
 }
 .msg.assistant .msg-body { border-top-left-radius: 4px; }

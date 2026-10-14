@@ -64,6 +64,15 @@ export const DEFAULT_SETTINGS = Object.freeze({
   searchEnabled: true,
   searchEngine: 'bing',
   searchCount: 5,
+
+  // ── 语音提示音 ──────────────────────────────────────
+  // 朗读前先响一声，像终端在确认"我要说话了"
+  chimeEnabled: true,
+  chimePreset: 'terminal',
+  chimeVolume: 0.7,
+
+  // ── 视差背景（HDD 终端风格）────────────────────────
+  parallaxEnabled: true,
   // 外观
   theme: 'dark',
   scale: 100,
