@@ -93,8 +93,10 @@ function syncToAssets(log) {
   const assetWww = path.resolve(ROOT, 'android/app/src/main/assets/www');
   if (!exists(assetWww)) return;
 
-  // voice/ 含内置的 Fairy 参考录音（用于一键克隆音色），必须一起同步
-  const dirs = ['css', 'icons', 'voice'];
+  // 注意：**不**同步 voice/。
+  // 本项目不内置任何音频素材（参考录音常涉及第三方版权），
+  // 音色克隆由使用者自行提供录音。
+  const dirs = ['css', 'icons'];
   const files = ['index.html', 'manifest.webmanifest', 'sw.js', 'js/bundle.js'];
 
   const copy = (rel) => {

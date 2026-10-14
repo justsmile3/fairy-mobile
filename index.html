@@ -190,12 +190,13 @@
       </label>
       <p id="provider-hint" class="field-note"></p>
 
-      <!-- 克隆入口：一键用内置录音，不依赖上面的选择 -->
+      <!-- 克隆入口：不依赖上面的选择 -->
       <div class="row">
-        <button id="btn-clone-top" class="mini-btn primary" type="button">🎙 一键克隆 Fairy 音色</button>
+        <button id="btn-clone-top" class="mini-btn primary" type="button">🎙 克隆音色</button>
       </div>
       <p id="clone-top-hint" class="field-note">
-        APK 已内置 Fairy 的参考录音，只需填入 SiliconFlow API Key，点一下即可克隆出她本人的音色。
+        上传一段参考录音（5–10 秒，无背景音乐），服务会返回一个专属音色 ID，
+        之后朗读就用这个声音。<b>本项目不内置任何音频素材</b>，录音请自行准备。
       </p>
 
       <div id="sf-box" hidden>
@@ -220,13 +221,18 @@
           <input id="set-sf-reftext" type="text" placeholder="录音里说的那句话（必填）" spellcheck="false">
         </label>
         <div class="row">
-          <button id="btn-clone-voice" class="mini-btn" type="button">用录音克隆 Fairy 音色</button>
+          <button id="btn-clone-voice" class="mini-btn" type="button">上传录音克隆音色</button>
           <button id="btn-test-sf" class="mini-btn" type="button">测试云语音</button>
         </div>
         <input id="clone-audio-file" type="file" accept="audio/*" hidden>
         <p id="clone-hint" class="field-note">
-          原理：上传一段 Fairy 的参考录音（5–10 秒，越清晰越好）<b>以及录音里说的那句话</b>，
-          服务会返回一个专属音色 ID，之后就能用她本人的声音朗读任意文字。
+          上传一段参考录音（5–10 秒，越清晰越好）<b>以及录音里说的那句话</b>，
+          服务会返回一个专属音色 ID，之后就能用这个声音朗读任意文字。
+        </p>
+        <p class="field-note warn">
+          ⚠️ 请确保你拥有所上传录音的使用权。克隆他人声音可能涉及人格权或
+          著作权，请仅在合法授权范围内使用，勿用于冒充他人或违法用途。
+          本项目不提供、也不分发任何音频素材。
         </p>
       </div>
 

@@ -1096,30 +1096,77 @@ public class MainActivity extends Activity {
         /* ── 内置参考录音 ── */
 
         /**
-         * 读取打包在 assets 里的 Fairy 参考录音，返回 base64（不含 data URI 前缀）。
+         * 读取用户放入的参考录音，返回 base64（不含 data URI 前缀）。
          *
-         * 为什么要走原生：WebView 在 file:// 下无法可靠地读取 assets 中的二进制
-         * （受同源策略限制），而原生的 AssetManager 可以直接读。
+         * 为什么不内置录音：参考录音通常是某作品角色的语音片段，随仓库/APK
+         * 分发会涉及第三方版权。因此本项目**不分发任何音频素材**，
+         * 只提供克隆能力，由使用者自行准备录音。
          *
-         * 返回 JSON：{"ok":"1","base64":"...","mime":"audio/wav","text":"..."}
-         * 失败时 ok 为 "0"，error 说明原因。
+         * 查找顺序：
+         *   1. 外部私有目录（用户可直接用文件管理器放入）
+         *      /sdcard/Android/data/com.fairy.mobile/files/
+         *   2. APK 内置 assets（仅在开发者自行放入时才存在）
+         *
+         * 为什么要走原生：WebView 在 file:// 下无法可靠读取 assets 中的二进制，
+         * 也读不到外部私有目录；原生侧可以直接读。
+         *
+         * 返回 JSON：{"ok":"1","base64":"...","mime":"...","text":"..."}
+         * 失败时 ok 为 "0"，error 说明原因与放置路径。
          */
         @JavascriptInterface
         public String readBuiltinVoice() {
             JSONObject out = new JSONObject();
             try {
-                byte[] data = readAsset("www/voice/fairy-ref.wav");
+                byte[] data = null;
+                String mime = "audio/wav";
+                String from = "";
+
+                // 1) 外部私有目录：支持常见音频格式
+                File dir = getExternalFilesDir(null);
+                if (dir != null && dir.isDirectory()) {
+                    String[][] cands = {
+                            {"fairy-ref.wav", "audio/wav"},
+                            {"fairy-ref.mp3", "audio/mpeg"},
+                            {"fairy-ref.m4a", "audio/mp4"},
+                            {"fairy.wav", "audio/wav"},
+                            {"fairy.mp3", "audio/mpeg"},
+                            {"fairy.m4a", "audio/mp4"},
+                    };
+                    for (String[] c : cands) {
+                        File f = new File(dir, c[0]);
+                        if (f.isFile() && f.length() > 0) {
+                            data = readFileBytes(f);
+                            mime = c[1];
+                            from = "外部目录：" + c[0];
+                            break;
+                        }
+                    }
+                }
+
+                // 2) 内置 assets（仅当开发者自行放入）
+                if (data == null) {
+                    byte[] wav = readAsset("www/voice/fairy-ref.wav");
+                    if (wav != null && wav.length > 0) {
+                        data = wav;
+                        from = "内置资源";
+                    }
+                }
+
                 if (data == null || data.length == 0) {
                     out.put("ok", "0");
-                    out.put("error", "内置录音不存在");
+                    out.put("error", "未找到参考录音");
+                    out.put("hint", "请用「上传录音」按钮选择文件，"
+                            + "或把录音放到：" + (dir != null ? dir.getAbsolutePath() : "(无外部目录)"));
                     return out.toString();
                 }
+
                 out.put("ok", "1");
                 out.put("base64", Base64.encodeToString(data, Base64.NO_WRAP));
-                out.put("mime", "audio/wav");
+                out.put("mime", mime);
                 out.put("bytes", String.valueOf(data.length));
+                out.put("from", from);
 
-                // 参考文本（SiliconFlow 的克隆接口要求必填）
+                // 参考文本（克隆接口要求必填，由使用者在界面填写）
                 String text = "";
                 byte[] meta = readAsset("www/voice/fairy-voice.json");
                 if (meta != null) {
@@ -1136,6 +1183,20 @@ public class MainActivity extends Activity {
                     out.put("error", describe(e));
                 } catch (Throwable ignored) { }
                 return out.toString();
+            }
+        }
+
+        /** 读取任意文件的字节（失败返回 null） */
+        private byte[] readFileBytes(File f) {
+            try (InputStream in = new java.io.FileInputStream(f)) {
+                ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                byte[] buf = new byte[64 * 1024];
+                int n;
+                while ((n = in.read(buf)) > 0) bos.write(buf, 0, n);
+                return bos.toByteArray();
+            } catch (Throwable e) {
+                Log.w(TAG, "读取录音失败：" + f, e);
+                return null;
             }
         }
 

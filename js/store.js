@@ -45,9 +45,11 @@ export const DEFAULT_SETTINGS = Object.freeze({
   sfModel: 'FunAudioLLM/CosyVoice2-0.5B',
   sfVoice: '',            // 克隆得到的音色 ID，形如 speech:xxx:yyy:zzz
   sfBaseUrl: 'https://api.siliconflow.cn/v1',
-  // 参考录音里逐字对应的文本。SiliconFlow 的上传接口**必填**此项，
-  // 默认填入项目已验证可用的那段 Fairy 录音文本。
-  sfRefText: '主人，我是fairy。语音系统已经准备就绪，随时为您提供帮助。',
+  // 参考录音里逐字对应的文本。SiliconFlow 的上传接口**必填**此项。
+  //
+  // 这里刻意留空：本项目不分发音频素材，参考文本取决于使用者自己上传的录音，
+  // 因此无法预设。留空时界面会提示使用者填写。
+  sfRefText: '',
   // 自定义 OpenAI 兼容服务（可接入任意自建或第三方 TTS）
   customBaseUrl: '',
   customApiKey: '',

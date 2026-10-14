@@ -200,9 +200,11 @@ export function initCloudTtsUi(ctx) {
   }
 
   /**
-   * 用**内置的** Fairy 录音直接克隆，不需要用户选文件。
-   * 录音随 APK 一起分发（assets/www/voice/fairy-ref.wav），
-   * 由原生桥读成 base64 后回传，规避 WebView 读 assets 二进制的限制。
+   * 用**用户自备的**录音克隆音色。
+   *
+   * 本项目不内置任何音频素材 —— 参考录音通常是某作品角色的语音片段，
+   * 随仓库/APK 分发会涉及第三方版权。因此这里只提供能力：
+   * 优先读取用户放到应用外部私有目录的录音；没有则引导手动选择文件。
    */
   async function cloneFromBuiltin() {
     const settings = getSettings();
@@ -218,7 +220,7 @@ export function initCloudTtsUi(ctx) {
       if (sel) sel.value = 'siliconflow';
       syncProviderBoxes();
       setHint('还差一步：请先在上方填写 SiliconFlow API Key（cloud.siliconflow.cn 控制台创建），'
-        + '填好后再次点击即可一键克隆。', 'bad');
+        + '填好后再次点击即可开始克隆。', 'bad');
       const keyBox = $('#set-sf-key');
       if (keyBox) {
         keyBox.focus();
@@ -230,28 +232,35 @@ export function initCloudTtsUi(ctx) {
 
     const bridge = typeof window !== 'undefined' ? window.AndroidBridge : null;
     if (!bridge || typeof bridge.readBuiltinVoice !== 'function') {
-      setHint('当前环境读取不到内置录音，请改用「上传录音」按钮手动选择文件。', 'bad');
+      // 浏览器环境：直接让用户选文件
+      setHint('请选择一段参考录音（5–10 秒，无背景音乐）。');
+      cloneFile?.click();
       return;
     }
 
-    setHint('正在读取内置的 Fairy 录音…');
+    setHint('正在查找参考录音…');
     let info;
     try {
       info = JSON.parse(bridge.readBuiltinVoice() || '{}');
     } catch (err) {
-      setHint(`读取内置录音失败：${err.message}`, 'bad');
-      return;
-    }
-    if (info.ok !== '1' || !info.base64) {
-      setHint(`读取内置录音失败：${info.error || '未知原因'}`, 'bad');
+      setHint(`读取录音失败：${err.message}`, 'bad');
       return;
     }
 
-    // 内置录音配套的参考文本（接口必填）
+    // 没找到现成录音：引导用户选择文件，而不是报错卡住
+    if (info.ok !== '1' || !info.base64) {
+      setHint('未找到现成录音。请点「上传录音」选择一段参考录音（5–10 秒，无背景音乐）。'
+        + (info.hint ? `\n${info.hint}` : ''), 'bad');
+      cloneFile?.click();
+      return;
+    }
+
+    // 配套的参考文本（接口必填）
     const refText = String(info.text || settings.sfRefText || '').trim();
     if (refText) save({ sfRefText: refText });
 
-    setHint(`已读取内置录音（${(Number(info.bytes) / 1024).toFixed(0)} KB），正在上传克隆…`
+    setHint(`已读取录音（${(Number(info.bytes) / 1024).toFixed(0)} KB`
+      + `${info.from ? `，来源：${info.from}` : ''}），正在上传克隆…`
       + '\n通常需要几秒到几十秒，请勿关闭页面。');
 
     try {
