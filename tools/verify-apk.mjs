@@ -683,6 +683,84 @@ async function runChecks(ws) {
       pulseHidden.ok,
       `环=${pulseHidden.waveOpacity} 层=${pulseHidden.layerOpacity}`);
 
+    /* ── 顶栏立绘开关 ── */
+
+    const toggleInfo = await evaluate(`
+      (() => {
+        const btn = document.querySelector('#btn-mascot-toggle');
+        const title = document.querySelector('#topbar-title');
+        if (!btn || !title) return { ok: false, why: '元素缺失' };
+        const br = btn.getBoundingClientRect();
+        const tr = title.getBoundingClientRect();
+        return {
+          ok: true,
+          // 关键：按钮必须在标题左侧
+          leftOfTitle: br.right <= tr.left + 1,
+          pressed: btn.getAttribute('aria-pressed'),
+          hasEyeIcon: !!btn.querySelector('.eye-disc') && !!btn.querySelector('.eye-pupil'),
+          visible: br.width > 0 && br.height > 0,
+        };
+      })()
+    `);
+    add('顶栏有立绘开关且位于标题左侧',
+      toggleInfo.ok && toggleInfo.leftOfTitle && toggleInfo.visible,
+      toggleInfo.ok ? `标题左侧=${toggleInfo.leftOfTitle}` : toggleInfo.why);
+    add('立绘开关图标画成眼睛（非通用图标）',
+      toggleInfo.hasEyeIcon, '');
+
+    // 点击按钮应切换立绘显隐，并与设置里的开关同步
+    const toggleFlow = await evaluate(`
+      (async () => {
+        const btn = document.querySelector('#btn-mascot-toggle');
+        const layer = document.querySelector('#mascot-layer');
+        const cb = document.querySelector('#set-mascot-visible');
+        const read = () => ({
+          layerHidden: layer.dataset.hidden,
+          pressed: btn.getAttribute('aria-pressed'),
+          checkbox: cb.checked,
+        });
+        const before = read();
+        btn.click();
+        await new Promise(r => setTimeout(r, 120));
+        const afterFirst = read();
+        btn.click();
+        await new Promise(r => setTimeout(r, 120));
+        const afterSecond = read();
+        return { before, afterFirst, afterSecond };
+      })()
+    `);
+    // 第一次点击：立绘收起（hidden=true, pressed=false, 设置同步为未勾选）
+    add('点击开关能收起立绘且三处状态同步',
+      toggleFlow.afterFirst.layerHidden === 'true'
+      && toggleFlow.afterFirst.pressed === 'false'
+      && toggleFlow.afterFirst.checkbox === false,
+      `layer=${toggleFlow.afterFirst.layerHidden} pressed=${toggleFlow.afterFirst.pressed} cb=${toggleFlow.afterFirst.checkbox}`);
+    // 第二次点击：恢复
+    add('再次点击能展开立绘并恢复状态',
+      toggleFlow.afterSecond.layerHidden === 'false'
+      && toggleFlow.afterSecond.pressed === 'true'
+      && toggleFlow.afterSecond.checkbox === true,
+      `layer=${toggleFlow.afterSecond.layerHidden} pressed=${toggleFlow.afterSecond.pressed}`);
+
+    // 反向同步：改设置里的开关，顶栏按钮也要跟着变
+    const reverseSync = await evaluate(`
+      (async () => {
+        const btn = document.querySelector('#btn-mascot-toggle');
+        const cb = document.querySelector('#set-mascot-visible');
+        cb.checked = false;
+        cb.dispatchEvent(new Event('change', { bubbles: true }));
+        await new Promise(r => setTimeout(r, 120));
+        const off = btn.getAttribute('aria-pressed');
+        cb.checked = true;
+        cb.dispatchEvent(new Event('change', { bubbles: true }));
+        await new Promise(r => setTimeout(r, 120));
+        return { off, on: btn.getAttribute('aria-pressed') };
+      })()
+    `);
+    add('从设置改开关时顶栏按钮同步更新',
+      reverseSync.off === 'false' && reverseSync.on === 'true',
+      `设置关闭后按钮=${reverseSync.off}，开启后=${reverseSync.on}`);
+
     /* ── 联网搜索 ── */
 
     const searchUi = await evaluate(`

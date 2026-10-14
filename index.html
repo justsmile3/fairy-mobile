@@ -24,6 +24,23 @@
   <button id="btn-menu" class="icon-btn" type="button" aria-label="打开会话列表" aria-expanded="false">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
   </button>
+
+  <!--
+    立绘开关：位于标题左侧。
+    图标不是通用方块，而是画成 Fairy 的眼睛（外盘 + 眼白 + 瞳孔），
+    与右下角立绘呼应，一眼能认出它控制的是什么。
+    展开时实心、收起时描边，用颜色与描边同时表达状态。
+  -->
+  <button id="btn-mascot-toggle" class="icon-btn mascot-toggle" type="button"
+          aria-label="收起 Fairy 立绘" aria-pressed="true" title="收起 / 展开 Fairy 立绘">
+    <svg viewBox="0 0 24 24" aria-hidden="true" class="mascot-eye-icon">
+      <circle class="eye-disc" cx="12" cy="12" r="9.2"/>
+      <circle class="eye-sclera" cx="12" cy="12" r="6.1"/>
+      <circle class="eye-pupil" cx="12" cy="12" r="2.6"/>
+      <circle class="eye-glint" cx="13.6" cy="13.6" r="1.15"/>
+    </svg>
+  </button>
+
   <div id="topbar-title">
     <span id="session-title">新的委托</span>
     <span id="session-sub">Fairy · 待命</span>

@@ -380,6 +380,20 @@ function applyFuse() {
   root.style.setProperty('--fuse-inv', (1 - level).toFixed(3));
 }
 
+/**
+ * 同步顶栏立绘开关的显示状态。
+ *
+ * 立绘显隐有两个入口（顶栏按钮、设置里的开关），
+ * 必须都从这里取状态，否则会出现两处显示不一致。
+ */
+function syncMascotToggle() {
+  const btn = $('#btn-mascot-toggle');
+  if (!btn) return;
+  const on = state.settings.mascotVisible !== false;
+  btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  btn.setAttribute('aria-label', on ? '收起 Fairy 立绘' : '展开 Fairy 立绘');
+}
+
 function applyTheme() {
   const pref = state.settings.theme;
   const dark = pref === 'dark'
@@ -1517,6 +1531,8 @@ function saveSettings(patch) {
   safeMascot('setScale', state.settings.scale / 100);
   safeMascot('setAnimationSpeed', state.settings.animSpeed);
   $('#mascot-layer').dataset.hidden = state.settings.mascotVisible ? 'false' : 'true';
+  // 顶栏的立绘开关同步状态（设置里改也会反映到按钮上）
+  syncMascotToggle();
   state.tts?.setRate?.(Number(state.settings.rate));
   // 语速同步给原生（系统引擎与云语音共用）
   try { window.AndroidBridge?.ttsSetRate?.(String(state.settings.rate)); } catch { /* 忽略 */ }
@@ -1566,6 +1582,26 @@ function bindSettingsUI() {
     saveSettings({ animSpeed: Number(e.target.value) });
   });
   $('#set-mascot-visible').addEventListener('change', (e) => saveSettings({ mascotVisible: e.target.checked }));
+
+  // 顶栏的立绘开关。与设置里的开关共用同一份状态，
+  // 因此两个入口永远一致 —— 不会出现"这里显示开着、那里显示关着"。
+  $('#btn-mascot-toggle')?.addEventListener('click', () => {
+    const next = !(state.settings.mascotVisible !== false);
+    saveSettings({ mascotVisible: next });
+    const cb = $('#set-mascot-visible');
+    if (cb) cb.checked = next;
+    // 展开时给立绘一个轻微的"出现"动效，让它被注意到
+    if (next) {
+      const layer = $('#mascot-layer');
+      if (layer && !window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) {
+        layer.animate(
+          [{ transform: 'scale(.82)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 }],
+          { duration: 260, easing: 'cubic-bezier(.2,.8,.2,1)' },
+        );
+      }
+    }
+    toast(next ? 'Fairy 立绘已展开。' : 'Fairy 立绘已收起。');
+  });
 
   $('#btn-test-voice').addEventListener('click', () => {
     speakText('检查完毕。语音通道正常，主人。');

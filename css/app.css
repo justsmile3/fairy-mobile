@@ -190,6 +190,77 @@ button { cursor: pointer; }
   text-align: center;
   line-height: 1.25;
 }
+
+/* ── 立绘开关（顶栏，标题左侧）───────────────────────── */
+
+/*
+  图标画成 Fairy 的眼睛，与右下角立绘呼应。
+  状态表达用两个维度，避免只靠颜色（色弱用户也能分辨）：
+    展开 → 外盘填充主题蓝、瞳孔实心
+    收起 → 全部改为描边、不填充、整体降透明度
+*/
+.mascot-toggle .mascot-eye-icon {
+  /* 覆盖 .icon-btn svg 的通用描边规则，这里要自己控制填充 */
+  fill: none;
+  stroke-width: 1.6;
+  /* 比其他图标略大：眼睛的细节（眼白/瞳孔/高光）在小尺寸下会糊掉 */
+  width: 25px;
+  height: 25px;
+}
+.mascot-toggle .eye-disc {
+  fill: color-mix(in srgb, var(--accent) 78%, transparent);
+  stroke: color-mix(in srgb, var(--accent) 90%, #fff);
+  transition: fill var(--dur) var(--ease), stroke var(--dur) var(--ease);
+}
+.mascot-toggle .eye-sclera {
+  fill: #eef0f5;
+  stroke: none;
+  transition: fill var(--dur) var(--ease);
+}
+.mascot-toggle .eye-pupil {
+  fill: #3b3d8a;
+  stroke: none;
+  transition: fill var(--dur) var(--ease);
+}
+.mascot-toggle .eye-glint {
+  fill: #f5f8fd;
+  stroke: none;
+  transition: fill var(--dur) var(--ease);
+}
+
+/* 收起状态：整体转为描边，一眼看出"已关" */
+.mascot-toggle[aria-pressed="false"] .eye-disc {
+  fill: none;
+  stroke: var(--muted);
+}
+.mascot-toggle[aria-pressed="false"] .eye-sclera {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.3;
+}
+.mascot-toggle[aria-pressed="false"] .eye-pupil {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.3;
+}
+.mascot-toggle[aria-pressed="false"] .eye-glint {
+  fill: var(--muted);
+  opacity: .55;
+}
+.mascot-toggle[aria-pressed="false"] {
+  opacity: .62;
+}
+.mascot-toggle[aria-pressed="false"]:hover {
+  opacity: 1;
+}
+
+/* 展开瞬间给一点反馈，让"立绘出现了"这件事被注意到 */
+.mascot-toggle:active .mascot-eye-icon {
+  transform: scale(.9);
+}
+.mascot-toggle .mascot-eye-icon {
+  transition: transform 140ms var(--ease);
+}
 #session-title {
   display: block;
   font-size: 15px;
